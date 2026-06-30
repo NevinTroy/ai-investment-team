@@ -320,7 +320,7 @@ def _format_title_slide(company: str, question: str, subtitle: str) -> str:
         f"Investment Question: {question}\n"
         f"Subtitle: {subtitle}\n"
         f"Report Date: {report_date}\n\n"
-        f"Prepared by: Troy - AI Investment Swarm\n"
+        f"Prepared by: Archer — Investment Committee\n"
         f"Confidential — For discussion purposes only"
     )
 
