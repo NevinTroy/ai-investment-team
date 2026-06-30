@@ -73,12 +73,14 @@ def upload_image(file_path: str) -> dict[str, Any]:
 def generate_presentation(
     slides: list[dict[str, str]],
     *,
-    content_generation: str | None = None,
+    content_generation: str | None = "preserve",
 ) -> dict[str, Any]:
     """POST /api/v3/presentation/generate and return the JSON response."""
-    payload = {**_presentation_defaults(), "slides": slides}
-    if content_generation:
-        payload["content_generation"] = content_generation
+    payload = {
+        **_presentation_defaults(),
+        "slides": slides,
+        "content_generation": content_generation or "preserve",
+    }
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
@@ -89,7 +91,7 @@ def generate_presentation(
             response = client.post(PRESENTON_GENERATE_URL, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
-        logger.info("Presenton presentation generated: %s", _extract_url(data) or "ok")
+        logger.info("Presenton presentation generated: %s", extract_presentation_url(data) or "ok")
         return data if isinstance(data, dict) else {"raw": data}
     except RuntimeError:
         raise
@@ -102,12 +104,28 @@ def generate_presentation(
         raise
 
 
-def _extract_url(payload: dict[str, Any]) -> str | None:
-    for key in ("path", "url", "presentation_url", "download_url", "pdf_url", "link", "edit_path"):
+def extract_presentation_url(payload: dict[str, Any]) -> str:
+    """Return Presenton's exported file URL (PDF/PPTX) — use the API ``path`` field as-is."""
+    path = payload.get("path")
+    if isinstance(path, str) and path.startswith("http"):
+        return path
+    for key in ("presentation_url", "download_url", "pdf_url", "url"):
         value = payload.get(key)
         if isinstance(value, str) and value.startswith("http"):
             return value
     data = payload.get("data")
     if isinstance(data, dict):
-        return _extract_url(data)
-    return None
+        return extract_presentation_url(data)
+    return ""
+
+
+def extract_edit_path(payload: dict[str, Any]) -> str:
+    """Return Presenton's editor URL (separate from the exported PDF)."""
+    edit_path = payload.get("edit_path")
+    return edit_path if isinstance(edit_path, str) else ""
+
+
+def _extract_url(payload: dict[str, Any]) -> str | None:
+    """Backward-compatible alias for ``extract_presentation_url``."""
+    url = extract_presentation_url(payload)
+    return url or None

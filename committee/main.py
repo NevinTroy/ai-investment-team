@@ -219,11 +219,9 @@ def _print_result(company: str, data: dict) -> None:
         print("Investment Memo:")
         print(json.dumps(memo, indent=2))
         if memo.get("presentation_url"):
-            print(f"\n(PDF URL: {memo['presentation_url']})\n")
+            print(f"\n(PDF: {memo['presentation_url']})\n")
         if memo.get("edit_path"):
             print(f"(Edit in Presenton: {memo['edit_path']})\n")
-        if memo.get("markdown_path"):
-            print(f"(Memo slides written to {memo['markdown_path']})\n")
         produced = True
 
     if not produced:

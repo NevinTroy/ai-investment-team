@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archer — Investment Committee</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body { background: #0c0c0e; color: #e7e7ea; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; overflow: hidden; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.09); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  textarea::placeholder, input::placeholder { color: #57575c; }
+  textarea { font-family: inherit; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+
+  #app { height: 100vh; display: flex; flex-direction: column; background: #0c0c0e; overflow: hidden; }
+
+  /* ── HOME ── */
+  #home {
+    flex: 1; overflow-y: auto; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 40px 24px;
+  }
+  .logo-mark {
+    width: 60px; height: 60px; border-radius: 17px;
+    background: linear-gradient(150deg, #3a7d5b 0%, #244e3c 100%);
+    box-shadow: 0 6px 22px rgba(47,107,79,0.35), inset 0 1px 0 rgba(255,255,255,0.14);
+    display: flex; align-items: center; justify-content: center; margin-bottom: 20px;
+  }
+  .hero-text {
+    text-align: center; font-size: 24px; line-height: 1.35; font-weight: 500;
+    color: #ededf0; margin-bottom: 30px;
+  }
+  .home-input-wrap {
+    width: 600px; max-width: 100%;
+    background: #161618; border: 1px solid rgba(96,128,196,0.55);
+    border-radius: 12px; padding: 14px 16px 12px;
+  }
+  .home-input-wrap textarea {
+    width: 100%; background: transparent; border: none; outline: none; resize: none;
+    color: #ededf0; font-size: 15px; line-height: 1.5;
+  }
+  .home-input-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .send-btn {
+    width: 30px; height: 30px; border-radius: 8px; background: #e7e7ea;
+    color: #0c0c0e; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; border: none; flex: none;
+  }
+  .send-btn:hover { background: #d0d0d3; }
+
+  /* ── CHAT ── */
+  #chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #chat-scroll {
+    flex: 1; overflow-y: auto; padding: 28px 24px 24px;
+  }
+  .chat-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+
+  /* user bubble */
+  .user-row { display: flex; justify-content: flex-end; animation: fadeUp .25s ease; }
+  .user-bubble {
+    max-width: 80%; background: #26262a; border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px 14px 4px 14px; padding: 11px 15px;
+    font-size: 15px; line-height: 1.5; color: #ededf0;
+  }
+
+  /* assistant row */
+  .asst-row { display: flex; gap: 13px; animation: fadeUp .3s ease; }
+  .asst-avatar {
+    width: 30px; height: 30px; flex: none; border-radius: 9px;
+    background: linear-gradient(150deg, #3a7d5b 0%, #244e3c 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+    display: flex; align-items: center; justify-content: center; margin-top: 2px;
+  }
+  .asst-body { flex: 1; min-width: 0; }
+  .asst-text { font-size: 15px; line-height: 1.55; color: #dcdce0; margin-bottom: 14px; }
+
+  /* agents card */
+  .agents-card {
+    border: 1px solid rgba(255,255,255,0.07); border-radius: 13px;
+    background: #141416; overflow: hidden;
+  }
+  .agents-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .agents-header-label { font-size: 13px; font-weight: 500; color: #c8c8cc; }
+  .agents-header-count { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #7c7c82; }
+
+  .agent-row { border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .agent-row:last-child { border-bottom: none; }
+  .agent-row-inner {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 13px 15px; cursor: default;
+  }
+  .agent-row-inner.clickable { cursor: pointer; }
+  .agent-row-inner:hover.clickable { background: rgba(255,255,255,0.02); }
+
+  .status-icon { flex: none; width: 18px; height: 18px; margin-top: 1px; display: flex; align-items: center; justify-content: center; }
+  .icon-pending { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.16); }
+  .icon-running {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.14); border-top-color: #9aa0a6;
+    animation: spin .7s linear infinite;
+  }
+  .icon-done {
+    width: 18px; height: 18px; border-radius: 50%; background: #2f6b4f;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .agent-info { flex: 1; min-width: 0; }
+  .agent-name-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .agent-name { font-size: 14px; color: #ededf0; }
+  .agent-pill {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #7c7c82;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px; padding: 2px 7px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px;
+  }
+  .agent-report {
+    margin-top: 10px; font-size: 13px; line-height: 1.6; color: #a8a8ad;
+    border-left: 2px solid rgba(255,255,255,0.1); padding-left: 12px;
+    display: none;
+  }
+  .agent-report.open { display: block; }
+
+  .agent-right { flex: none; display: flex; align-items: center; gap: 9px; }
+  .agent-status-label { font-size: 12px; }
+  .chevron { transition: transform .2s; }
+
+  /* pdf section */
+  .pdf-section { animation: fadeUp .3s ease; }
+  .pdf-file-chip {
+    display: flex; align-items: center; gap: 12px;
+    border: 1px solid rgba(255,255,255,0.07); border-radius: 12px;
+    background: #141416; padding: 12px 14px; margin-bottom: 14px;
+  }
+  .pdf-icon {
+    width: 38px; height: 38px; flex: none; border-radius: 8px; background: #7a2f2f;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500; color: #f3dada;
+  }
+  .pdf-file-meta { flex: 1; min-width: 0; }
+  .pdf-file-name { font-size: 14px; color: #ededf0; }
+  .pdf-file-sub { font-size: 12px; color: #7c7c82; margin-top: 2px; }
+  .pdf-download-btn {
+    display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 13px;
+    background: #26262a; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+    font-size: 13px; color: #d8d8db; cursor: pointer; text-decoration: none; white-space: nowrap;
+    transition: background .15s;
+  }
+  .pdf-download-btn:hover { background: #2f2f33; }
+
+  .pdf-embed {
+    width: 100%;
+    height: 620px;
+    border: none;
+    display: block;
+    background: #525252;
+  }
+  .pdf-unavailable {
+    padding: 24px;
+    text-align: center;
+    color: #7c7c82;
+    font-size: 14px;
+  }
+
+  .pdf-viewer {
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+    overflow: hidden; background: #3a3a3e;
+  }
+  .pdf-viewer-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 40px; padding: 0 14px; background: #202023;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .pdf-viewer-bar span { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #9a9aa0; }
+  .pdf-viewer-bar .page-num { color: #6a6a70; }
+  .pdf-pages {
+    max-height: 560px; overflow-y: auto; padding: 22px;
+    display: flex; flex-direction: column; align-items: center; gap: 22px;
+  }
+  .pdf-page {
+    width: 560px; max-width: 100%; background: #fff; color: #1a1a1a;
+    border-radius: 3px; box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+    padding: 46px 48px; font-size: 12px; line-height: 1.6;
+  }
+  .pdf-page-header {
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+    letter-spacing: 0.1em; color: #8a8a8a;
+    border-bottom: 1px solid #e3e3e3; padding-bottom: 10px; margin-bottom: 26px;
+  }
+  .pdf-eyebrow {
+    font-size: 11px; letter-spacing: 0.14em; color: #9a3b3b;
+    font-family: 'JetBrains Mono', monospace; margin-bottom: 8px;
+  }
+  .pdf-title { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 4px; }
+  .pdf-subtitle { font-size: 13px; color: #6a6a6a; margin-bottom: 20px; }
+  .pdf-rec-badge {
+    display: inline-flex; align-items: center; gap: 7px;
+    border-radius: 6px; padding: 5px 12px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.04em; margin-bottom: 26px;
+  }
+  .rec-invest { background: #e7f4ec; color: #1f7a47; border: 1px solid #b9e0c8; }
+  .rec-pass { background: #f4e7e7; color: #7a1f1f; border: 1px solid #e0b9b9; }
+  .rec-watchlist { background: #f4f0e7; color: #7a5a1f; border: 1px solid #e0d4b9; }
+  .pdf-stats-grid {
+    display: grid; grid-template-columns: repeat(3,1fr); gap: 1px;
+    background: #e3e3e3; border: 1px solid #e3e3e3; border-radius: 6px;
+    overflow: hidden; margin-bottom: 26px;
+  }
+  .pdf-stat { background: #fafafa; padding: 13px 14px; }
+  .pdf-stat-label { font-size: 9px; letter-spacing: 0.08em; color: #9a9a9a; font-family: 'JetBrains Mono', monospace; margin-bottom: 5px; }
+  .pdf-stat-val { font-size: 18px; font-weight: 700; }
+  .pdf-h3 { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+  .pdf-p { margin: 0 0 18px; }
+  .risk-table { border: 1px solid #e3e3e3; border-radius: 6px; overflow: hidden; margin-bottom: 20px; }
+  .risk-table-head {
+    display: flex; justify-content: space-between; padding: 9px 13px;
+    background: #fafafa; font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; letter-spacing: 0.06em; color: #9a9a9a;
+    border-bottom: 1px solid #e3e3e3;
+  }
+  .risk-row { display: flex; justify-content: space-between; padding: 10px 13px; border-bottom: 1px solid #efefef; }
+  .risk-row:last-child { border-bottom: none; }
+  .sev-high { color: #b06a1f; font-weight: 600; }
+  .sev-medium { color: #b08a1f; font-weight: 600; }
+  .sev-low { color: #1f7a47; font-weight: 600; }
+  .pdf-footer {
+    border-top: 1px solid #e3e3e3; padding-top: 12px;
+    font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #9a9a9a;
+    display: flex; justify-content: space-between;
+  }
+
+  /* ── BOTTOM COMPOSER ── */
+  #composer {
+    flex: none; padding: 14px 24px 20px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+  .composer-inner {
+    max-width: 760px; margin: 0 auto; display: flex; align-items: center; gap: 10px;
+    height: 46px; padding: 0 14px; background: #161618;
+    border: 1px solid rgba(255,255,255,0.07); border-radius: 12px;
+  }
+  .composer-placeholder { flex: 1; font-size: 14px; color: #57575c; }
+  .new-chat-btn {
+    display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px;
+    background: #26262a; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+    font-size: 13px; color: #c5c5c9; cursor: pointer; border: none;
+    transition: background .15s;
+  }
+  .new-chat-btn:hover { background: #2f2f33; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- HOME -->
+  <div id="home">
+    <div class="logo-mark">
+      <svg width="36" height="36" viewBox="0 0 32 32" fill="none">
+        <path d="M7 24L13 17M13 17L20 19M20 19L26 8M13 17L18 10M20 19L25 17" stroke="#bfe9d2" stroke-width="1.3" stroke-linecap="round" opacity="0.6"/>
+        <circle cx="7" cy="24" r="2.4" fill="#eafff2"/>
+        <circle cx="13" cy="17" r="2.9" fill="#eafff2"/>
+        <circle cx="18" cy="10" r="2.1" fill="#bfe9d2"/>
+        <circle cx="20" cy="19" r="2.4" fill="#eafff2"/>
+        <circle cx="25" cy="17" r="1.8" fill="#bfe9d2"/>
+        <circle cx="26" cy="8" r="3.2" fill="#eafff2"/>
+      </svg>
+    </div>
+    <div class="hero-text">I'm Troy, your AI investment team.<br>Deploy the team to make investment decisions.</div>
+    <div class="home-input-wrap">
+      <textarea id="home-textarea" rows="2" placeholder="Ask anything — e.g. Should I invest in Gamma?"></textarea>
+      <div class="home-input-actions">
+        <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7c7c82" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>
+          </svg>
+          <button class="send-btn" id="home-send">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="19" x2="12" y2="5"/><polyline points="6 11 12 5 18 11"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHAT -->
+  <div id="chat" class="hidden" style="flex:1;display:flex;flex-direction:column;min-height:0">
+    <div id="chat-scroll" class="chat-inner" style="flex:1;overflow-y:auto;padding:28px 24px 24px">
+      <div style="max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:22px" id="chat-body"></div>
+    </div>
+    <div id="composer">
+      <div class="composer-inner">
+        <span class="composer-placeholder" id="composer-placeholder">Ask a follow-up…</span>
+        <button class="new-chat-btn" id="new-chat-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>New chat
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const AGENT_ORDER = [
+  'competitive_intelligence_agent',
+  'founder_analyzer_agent',
+  'investment_memo_agent',
+  'market_analyzer_agent',
+  'product_analyst_agent',
+];
+const AGENT_DISPLAY = {
+  competitive_intelligence_agent: 'Competitive Intelligence',
+  founder_analyzer_agent: 'Founder Analyzer',
+  investment_memo_agent: 'Investment Memo',
+  market_analyzer_agent: 'Market Analyzer',
+  product_analyst_agent: 'Product Analyst',
+};
+
+let state = {
+  phase: 'home',   // 'home' | 'running' | 'done'
+  query: '',
+  company: '',
+  agents: {},      // agentId → {status:'pending'|'running'|'done', ticker:'', report:''}
+  expanded: null,
+  recommendation: null,
+  memoData: null,
+  presentationUrl: null,
+};
+
+// ─── DOM refs ───────────────────────────────────────────
+const $home = document.getElementById('home');
+const $chat = document.getElementById('chat');
+const $chatScroll = document.getElementById('chat-scroll');
+const $chatBody = document.getElementById('chat-body');
+const $homeTa = document.getElementById('home-textarea');
+const $homeSend = document.getElementById('home-send');
+const $newChat = document.getElementById('new-chat-btn');
+const $compPlaceholder = document.getElementById('composer-placeholder');
+
+// ─── Helpers ────────────────────────────────────────────
+function svgIcon(type) {
+  if (type === 'troy')
+    return `<svg width="19" height="19" viewBox="0 0 32 32" fill="none"><path d="M7 24L13 17M13 17L20 19M20 19L26 8M13 17L18 10M20 19L25 17" stroke="#bfe9d2" stroke-width="1.3" stroke-linecap="round" opacity="0.6"/><circle cx="7" cy="24" r="2.4" fill="#eafff2"/><circle cx="13" cy="17" r="2.9" fill="#eafff2"/><circle cx="18" cy="10" r="2.1" fill="#bfe9d2"/><circle cx="20" cy="19" r="2.4" fill="#eafff2"/><circle cx="25" cy="17" r="1.8" fill="#bfe9d2"/><circle cx="26" cy="8" r="3.2" fill="#eafff2"/></svg>`;
+  if (type === 'check')
+    return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#dff3e8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+  if (type === 'chevron')
+    return `<svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6a6a70" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+  if (type === 'down')
+    return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+}
+
+function avatar() {
+  return `<div class="asst-avatar">${svgIcon('troy')}</div>`;
+}
+
+// ─── Render ─────────────────────────────────────────────
+function render() {
+  if (state.phase === 'home') {
+    $home.classList.remove('hidden');
+    $chat.classList.add('hidden');
+    return;
+  }
+
+  $home.classList.add('hidden');
+  $chat.classList.remove('hidden');
+
+  renderChat();
+  scrollBottom();
+}
+
+function renderChat() {
+  $chatBody.innerHTML = '';
+
+  // User bubble
+  const userRow = document.createElement('div');
+  userRow.className = 'user-row';
+  userRow.innerHTML = `<div class="user-bubble">${escHtml(state.query)}</div>`;
+  $chatBody.appendChild(userRow);
+
+  // Agents block
+  const asstRow = document.createElement('div');
+  asstRow.className = 'asst-row';
+
+  const doneCount = Object.values(state.agents).filter(a => a.status === 'done').length;
+  const total = AGENT_ORDER.length;
+
+  const agentRows = AGENT_ORDER.map(id => {
+    const a = state.agents[id] || { status: 'pending', ticker: '', report: '' };
+    const st = a.status;
+    const isExpanded = state.expanded === id;
+
+    const statusIcon = st === 'pending'
+      ? `<div class="icon-pending"></div>`
+      : st === 'running'
+        ? `<div class="icon-running"></div>`
+        : `<div class="icon-done">${svgIcon('check')}</div>`;
+
+    const pill = a.ticker ? escHtml(a.ticker) : '…';
+    const statusColor = st === 'done' ? '#6cc08e' : st === 'running' ? '#c5c5c9' : '#5c5c62';
+    const statusLabel = st === 'done' ? 'Done' : st === 'running' ? 'Running…' : 'Queued';
+
+    const report = a.report && isExpanded
+      ? `<div class="agent-report open">${escHtml(a.report)}</div>`
+      : `<div class="agent-report"></div>`;
+
+    const chevron = st === 'done'
+      ? `<span style="transform:${isExpanded ? 'rotate(180deg)' : 'rotate(0)'};display:inline-block;transition:transform .2s">${svgIcon('chevron')}</span>`
+      : '';
+
+    const clickable = st === 'done' ? 'clickable' : '';
+
+    return `
+      <div class="agent-row">
+        <div class="agent-row-inner ${clickable}" data-agent="${id}">
+          <div class="status-icon">${statusIcon}</div>
+          <div class="agent-info">
+            <div class="agent-name-row">
+              <span class="agent-name">${AGENT_DISPLAY[id]}</span>
+              <span class="agent-pill">${pill}</span>
+            </div>
+            ${report}
+          </div>
+          <div class="agent-right">
+            <span class="agent-status-label" style="color:${statusColor}">${statusLabel}</span>
+            ${chevron}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const deployText = state.company
+    ? `On it — deploying a research crew to evaluate <b>${escHtml(state.company)}</b> as an investment. Here's the live status.`
+    : `On it — deploying the research crew. Here's the live status.`;
+
+  asstRow.innerHTML = `
+    ${avatar()}
+    <div class="asst-body">
+      <div class="asst-text">${deployText}</div>
+      <div class="agents-card">
+        <div class="agents-header">
+          <span class="agents-header-label">Agents deployed</span>
+          <span class="agents-header-count">${doneCount}/${total} done</span>
+        </div>
+        ${agentRows}
+      </div>
+    </div>`;
+  $chatBody.appendChild(asstRow);
+
+  // Wire up clicks on agent rows
+  asstRow.querySelectorAll('.agent-row-inner.clickable').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.agent;
+      state.expanded = state.expanded === id ? null : id;
+      render();
+    });
+  });
+
+  // PDF block
+  if (state.phase === 'done' && state.memoData) {
+    renderPdf();
+  }
+
+  // Composer placeholder
+  if (state.company) {
+    $compPlaceholder.textContent = `Ask a follow-up about ${state.company}…`;
+  }
+}
+
+function renderPdf() {
+  const m = state.memoData;
+  if (!m) return;
+
+  const company = state.company;
+  const rec = (m.recommendation || 'invest').toLowerCase();
+  const recLabel = rec === 'invest' ? 'PROCEED' : rec === 'pass' ? 'PASS' : 'WATCHLIST';
+  const recColor = rec === 'invest' ? '#6cc08e' : rec === 'pass' ? '#e07070' : '#e0a060';
+  const pdfUrl = m.presentation_url || null;
+  const editUrl = m.edit_path || null;
+  const fileLabel = pdfUrl ? pdfUrl.split('/').pop().split('?')[0] : `Investment-Memo-${company.replace(/\s+/g, '-')}.pdf`;
+
+  const pdfRow = document.createElement('div');
+  pdfRow.className = 'asst-row pdf-section';
+  pdfRow.innerHTML = `
+    ${avatar()}
+    <div class="asst-body">
+      <div class="asst-text">
+        All agents finished. I compiled the findings into an investment memo — recommendation:
+        <b style="color:${recColor}">${recLabel}</b>.
+      </div>
+
+      ${pdfUrl ? `
+      <div class="pdf-file-chip">
+        <div class="pdf-icon">PDF</div>
+        <div class="pdf-file-meta">
+          <div class="pdf-file-name">${escHtml(fileLabel)}</div>
+          <div class="pdf-file-sub">Presenton export</div>
+        </div>
+        <a class="pdf-download-btn" href="${escHtml(pdfUrl)}" target="_blank" rel="noopener">${svgIcon('down')} Open PDF</a>
+      </div>
+
+      <div class="pdf-viewer">
+        <div class="pdf-viewer-bar">
+          <span>${escHtml(fileLabel)}</span>
+          ${editUrl ? `<a class="pdf-download-btn" href="${escHtml(editUrl)}" target="_blank" rel="noopener" style="height:28px;font-size:12px">Edit in Presenton</a>` : ''}
+        </div>
+        <iframe class="pdf-embed" src="${escHtml(pdfUrl)}" title="Investment Memo PDF"></iframe>
+      </div>
+      ` : `
+      <div class="pdf-viewer">
+        <div class="pdf-unavailable">Presenton did not return a PDF link. Check the investment memo agent output for details.</div>
+      </div>
+      `}
+    </div>`;
+  $chatBody.appendChild(pdfRow);
+}
+
+function scrollBottom() {
+  requestAnimationFrame(() => {
+    $chatScroll.scrollTop = $chatScroll.scrollHeight;
+  });
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── Submit ─────────────────────────────────────────────
+function submit(question) {
+  question = (question || '').trim();
+  if (!question) return;
+
+  state = {
+    phase: 'running',
+    query: question,
+    company: '',
+    agents: {},
+    expanded: null,
+    recommendation: null,
+    memoData: null,
+    fullData: null,
+    presentationUrl: null,
+  };
+  render();
+
+  const es = new EventSource('/api/analyze?' + new URLSearchParams({ question }), { withCredentials: false });
+
+  // Use POST via fetch + ReadableStream instead (EventSource doesn't support POST body)
+  es.close();
+  streamAnalysis(question);
+}
+
+async function streamAnalysis(question) {
+  let res;
+  try {
+    res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    });
+  } catch (e) {
+    showError('Could not reach the server. Is it running?');
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          handleEvent(JSON.parse(line.slice(6)));
+        } catch (_) {}
+      }
+    }
+  }
+}
+
+function handleEvent(ev) {
+  if (ev.type === 'start') {
+    state.company = ev.company || state.company;
+    render();
+    return;
+  }
+
+  if (ev.type === 'agent_update') {
+    const id = ev.agent;
+    if (!state.agents[id]) {
+      state.agents[id] = { status: 'pending', ticker: '', report: '' };
+    }
+    const a = state.agents[id];
+    if (ev.ticker) a.ticker = ev.ticker;
+
+    const isDone = (ev.status || '').toLowerCase() === 'done';
+    a.status = isDone ? 'done' : 'running';
+
+    if (ev.analysis) {
+      try {
+        const parsed = JSON.parse(ev.analysis);
+        a.report = parsed.reasoning || ev.analysis;
+      } catch (_) {
+        a.report = ev.analysis;
+      }
+    }
+    render();
+    return;
+  }
+
+  if (ev.type === 'complete') {
+    const data = ev.data || {};
+    const ana = data.analysis || {};
+    const memo = ana.investment_memo || {};
+    state.memoData = memo;
+    state.fullData = data;
+    state.company = ev.company || state.company;
+    state.phase = 'done';
+    render();
+    scrollBottom();
+    return;
+  }
+
+  if (ev.type === 'error') {
+    showError(ev.message || 'Unknown error');
+  }
+}
+
+function showError(msg) {
+  const el = document.createElement('div');
+  el.className = 'asst-row';
+  el.innerHTML = `${avatar()}<div class="asst-body"><div class="asst-text" style="color:#e07070">Error: ${escHtml(msg)}</div></div>`;
+  $chatBody.appendChild(el);
+  state.phase = 'done';
+  scrollBottom();
+}
+
+function reset() {
+  state = {
+    phase: 'home', query: '', company: '', agents: {},
+    expanded: null, recommendation: null, memoData: null, fullData: null,
+  };
+  $homeTa.value = '';
+  render();
+}
+
+// ─── Event wiring ────────────────────────────────────────
+$homeSend.addEventListener('click', () => submit($homeTa.value));
+$homeTa.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit($homeTa.value); }
+});
+$newChat.addEventListener('click', reset);
+
+// Initial render
+render();
+</script>
+</body>
+</html>

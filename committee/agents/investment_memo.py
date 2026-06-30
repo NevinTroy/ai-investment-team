@@ -19,7 +19,7 @@ from src.graph.state import AgentState, show_agent_reasoning
 from src.utils.llm import call_llm, get_memo_max_tokens
 from src.utils.progress import progress
 
-from committee.tools.presenton_api import _extract_url, generate_presentation, upload_image
+from committee.tools.presenton_api import extract_edit_path, extract_presentation_url, generate_presentation, upload_image
 
 logger = logging.getLogger("committee.investment_memo")
 _consolidated_logger = logging.getLogger("committee.investment_memo.consolidated")
@@ -70,17 +70,12 @@ class InvestmentMemoOutput(BaseModel):
     presentation_url: str = Field(default="")
     edit_path: str = Field(default="")
     presenton_response: dict = Field(default_factory=dict)
-    markdown_path: str = Field(default="")
     founder_images: list[dict] = Field(default_factory=list)
 
     @field_validator("company", "question", "recommendation", "recommendation_headline", mode="before")
     @classmethod
     def _strip_text(cls, v):
         return v.strip() if isinstance(v, str) else v
-
-
-def _slug(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "unknown"
 
 
 def _agent_input_snapshot(data: dict) -> dict:
@@ -227,6 +222,40 @@ def _consolidated_analysis_payload(analysis: dict) -> str:
     return "\n\n".join(sections) if sections else "(no analyst outputs available)"
 
 
+def _sanitize_presenton_text(text: str) -> str:
+    """Normalize slide copy so Presenton smart-design does not pull out rogue metric callouts."""
+    if not text:
+        return text
+
+    cleaned_lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line
+        # Preserve markdown image lines for founder photos.
+        if line.strip().startswith("!["):
+            cleaned_lines.append(line)
+            continue
+
+        line = re.sub(r"\*\*([^*]+)\*\*", r"\1", line)
+        line = re.sub(r"\*([^*]+)\*", r"\1", line)
+        line = re.sub(r"_([^_]+)_", r"\1", line)
+        line = re.sub(r"~\s*\$", "approximately $", line)
+        line = re.sub(r"~\s*(\d)", r"approximately \1", line)
+        line = re.sub(
+            r"\$(\d+(?:\.\d+)?)\s*([MmBbKk])?\s*[–—-]\s*\$?(\d+(?:\.\d+)?)\s*([MmBbKk])?",
+            lambda m: (
+                f"${m.group(1)}{m.group(2) or ''} to "
+                f"${m.group(3)}{(m.group(4) or m.group(2) or '')}"
+            ),
+            line,
+        )
+        line = re.sub(r"\s*\+\s*", " and ", line)
+        line = re.sub(r"\(\s*", "(", line)
+        line = re.sub(r"\s*\)", ")", line)
+        cleaned_lines.append(line)
+
+    return "\n".join(cleaned_lines)
+
+
 def _build_memo_prompt(company: str, question: str, analysis: dict) -> str:
     consolidated = _consolidated_analysis_payload(analysis)
     return f"""You are a senior investment analyst preparing an investment committee memo deck.
@@ -247,7 +276,13 @@ Requirements:
    - Key risks / business model (combine if needed)
 3. Keep each slide concise: 3-5 bullet points, max ~120 words per slide.
    Do NOT invent facts not supported by the analyst outputs. Use "Unknown" or "Not disclosed" when missing.
-4. Final recommendation (separate from body slides):
+4. Presenton-safe formatting (critical — prevents broken slide typography):
+   - Use plain bullet lines only. No markdown bold/italic, no tildes (~), no em-dashes between figures.
+   - Put each metric on its own bullet or a single clear label, e.g. "Revenue: $604.6M" or "Seed round: $5M".
+   - NEVER combine amounts inline, e.g. avoid "$40M ($5M Seed + $35M Series A)", "~$500M–1B", or "$5M + $35M".
+   - For funding breakdowns use separate bullets: "Total raised: $40M", "Seed: $5M", "Series A: $35M".
+   - For competitor lists use "Company — Revenue: $Xm" on one line per competitor.
+5. Final recommendation (separate from body slides):
    - decision: "invest", "pass", or "watchlist"
    - If invest, propose a reasonable check size in USD millions based on stage signals in the data
      (use null for amount only if truly insufficient context — prefer a justified estimate or range narrative in rationale)
@@ -285,7 +320,7 @@ def _format_title_slide(company: str, question: str, subtitle: str) -> str:
         f"Investment Question: {question}\n"
         f"Subtitle: {subtitle}\n"
         f"Report Date: {report_date}\n\n"
-        f"Prepared by: Investment Committee\n"
+        f"Prepared by: Troy - AI Investment Swarm\n"
         f"Confidential — For discussion purposes only"
     )
 
@@ -318,47 +353,20 @@ def assemble_presenton_slides(
                 break
 
     slides: list[dict[str, str]] = [
-        {"content": _format_title_slide(company, question, memo.subtitle), "layout": ""},
+        {"content": _sanitize_presenton_text(_format_title_slide(company, question, memo.subtitle)), "layout": ""},
     ]
     for index, body in enumerate(memo.body_slides, start=2):
-        content = f"Slide {index} — {body.heading}\n\n{body.content}"
+        content = _sanitize_presenton_text(f"Slide {index} — {body.heading}\n\n{body.content}")
         if founder_block and founder_slide_index is not None and index - 2 == founder_slide_index:
             content += f"\n\n{founder_block}"
         slides.append({"content": content, "layout": ""})
     slides.append(
         {
-            "content": _format_recommendation_slide(memo.recommendation),
+            "content": _sanitize_presenton_text(_format_recommendation_slide(memo.recommendation)),
             "layout": "",
         }
     )
     return slides
-
-
-def _write_memo_markdown(
-    company: str,
-    question: str,
-    memo: InvestmentMemoContent,
-    presenton_slides: list[dict[str, str]],
-    presentation_url: str,
-) -> str:
-    here = os.path.dirname(os.path.abspath(__file__))
-    repo_root = os.path.dirname(here)
-    path = os.path.join(repo_root, f"committee_investment_memo_{_slug(company)}.md")
-
-    slide_blocks = "\n\n---\n\n".join(s["content"] for s in presenton_slides)
-    content = f"""# Investment Memo: {company}
-
-**Question:** {question}
-**Recommendation:** {memo.recommendation.headline}
-**Presentation:** {presentation_url or "(see Presenton response in agent output)"}
-
-## Slides
-
-{slide_blocks}
-"""
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
-    return path
 
 
 def investment_memo_agent(state: AgentState, agent_id: str = "investment_memo_agent"):
@@ -423,19 +431,12 @@ def investment_memo_agent(state: AgentState, agent_id: str = "investment_memo_ag
     presentation_url = ""
     edit_path = ""
     try:
-        presenton_response = generate_presentation(
-            presenton_slides,
-            content_generation="preserve" if uploaded_founder_images else None,
-        )
-        presentation_url = _extract_url(presenton_response) or ""
-        edit_path = presenton_response.get("edit_path") or ""
+        presenton_response = generate_presentation(presenton_slides)
+        presentation_url = extract_presentation_url(presenton_response)
+        edit_path = extract_edit_path(presenton_response)
     except Exception as exc:
         logger.warning("Presenton generation failed: %s", exc)
         presenton_response = {"error": str(exc)}
-
-    markdown_path = _write_memo_markdown(
-        company, question, memo_content, presenton_slides, presentation_url
-    )
 
     progress.update_status(agent_id, company, "Verifying output")
     try:
@@ -449,7 +450,6 @@ def investment_memo_agent(state: AgentState, agent_id: str = "investment_memo_ag
             presentation_url=presentation_url,
             edit_path=edit_path,
             presenton_response=presenton_response,
-            markdown_path=markdown_path,
             founder_images=uploaded_founder_images,
         )
     except ValidationError as exc:
@@ -460,7 +460,7 @@ def investment_memo_agent(state: AgentState, agent_id: str = "investment_memo_ag
             recommendation=memo_content.recommendation.decision,
             recommendation_headline=memo_content.recommendation.headline,
             slide_count=len(presenton_slides),
-            markdown_path=markdown_path,
+            presentation_url=presentation_url,
             presenton_response=presenton_response,
             founder_images=uploaded_founder_images,
         )
