@@ -8,17 +8,76 @@ A dark-themed web UI streams live agent status as work progresses.
 
 ## Agent Architecture
 
-The pipeline is built on **LangGraph** with agents wired as a parallel fan-out from a single entry node.
+The pipeline is built on **LangGraph**. Four analyst agents fan out in parallel from a single entry node. When they finish, the **Investment Memo** agent runs separately (outside the graph) so it can read all consolidated outputs and generate the Presenton PDF.
+
+### Network graph
+
+```mermaid
+flowchart TB
+    subgraph input["Input"]
+        Q["User question<br/>e.g. Should we invest in Stripe?"]
+    end
+
+    subgraph langgraph["LangGraph — parallel analysts"]
+        START([start_node])
+        MA[Market Analyzer]
+        FA[Founder Analyzer]
+        PA[Product Analyst]
+        CI[Competitive Intelligence]
+        END_NODE([END])
+    end
+
+    subgraph state["Shared state"]
+        ANALYSIS["state.data.analysis"]
+        SEARCH["state.data.search_log"]
+    end
+
+    subgraph postgraph["Post-graph"]
+        IM[Investment Memo]
+        PRESENTON[(Presenton API)]
+        PDF["PDF link"]
+    end
+
+    Q --> START
+    START --> MA
+    START --> FA
+    START --> PA
+    START --> CI
+    MA --> END_NODE
+    FA --> END_NODE
+    PA --> END_NODE
+    CI --> END_NODE
+
+    MA -.-> ANALYSIS
+    FA -.-> ANALYSIS
+    PA -.-> ANALYSIS
+    CI -.-> ANALYSIS
+    MA -.-> SEARCH
+    FA -.-> SEARCH
+    PA -.-> SEARCH
+    CI -.-> SEARCH
+
+    END_NODE --> IM
+    ANALYSIS --> IM
+    IM --> PRESENTON
+    PRESENTON --> PDF
+```
+
+**LangGraph wiring** (`committee/graph.py`):
 
 ```
-                   ┌─ Market Analyzer ──────────┐
-                   ├─ Founder Analyzer ──────────┤
-question ──► start ├─ Product Analyst ───────────┼──► Investment Memo ──► output
-                   ├─ Competitive Intelligence ──┤
-                   └─ (future agents) ───────────┘
+                    ┌──► market_analyzer_agent ──► END
+                    │
+start_node ─────────┼──► founder_analyzer_agent ──► END
+                    │
+                    ├──► product_analyst_agent ──► END
+                    │
+                    └──► competitive_intelligence_agent ──► END
+
+(investment_memo_agent runs after committee.invoke() in main.py / api.py)
 ```
 
-All four analyst agents run concurrently. Once they finish, the Investment Memo agent reads every output and produces the final recommendation and deck.
+All four analyst agents run concurrently. Each writes its validated output to `state["data"]["analysis"]`. The Investment Memo agent then consumes that shared state, drafts slides, and calls Presenton for the final deck.
 
 ### Agents
 
@@ -98,10 +157,8 @@ src/
 # Install dependencies
 poetry install
 
-# Set environment variables in .env
-ANTHROPIC_API_KEY=...
-TAVILY_API_KEY=...
-PRESENTON_API_KEY=...   # optional — for PDF generation
+# Copy and fill in API keys
+cp .env.example .env
 ```
 
 ### CLI
@@ -124,10 +181,12 @@ Open `http://localhost:8000`.
 
 ## How a Request Flows
 
-1. The user submits a question in the UI (`POST /api/analyze`).
+1. The user submits a question in the UI (`POST /api/analyze`) or CLI.
 2. The API extracts the company name, opens an SSE stream, and runs the LangGraph committee in a thread pool.
-3. Each agent calls `progress.update_status(...)` as it advances through classify → research → synthesize → done.
-4. A registered handler pushes those status events onto an asyncio queue; the SSE stream forwards them to the browser as `agent_update` events.
-5. The browser renders live spinning/done icons per agent.
-6. When the Investment Memo agent finishes, the API fires a `complete` event with the full result. The frontend renders the memo inline and links to the generated PDF.
+3. `start_node` fans out to all four analyst agents in parallel.
+4. Each agent calls `progress.update_status(...)` as it advances through classify → research → synthesize → done.
+5. A registered handler pushes those status events onto an asyncio queue; the SSE stream forwards them to the browser as `agent_update` events.
+6. When the graph completes, `investment_memo_agent` runs with the consolidated `state["data"]["analysis"]`.
+7. The memo agent drafts slides, calls Presenton, and stores the returned PDF URL in `analysis.investment_memo.presentation_url`.
+8. The API fires a `complete` event with the full result. The frontend embeds the Presenton PDF via that link.
 
