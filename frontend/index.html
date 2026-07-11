@@ -4,9 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Archer — Investment Committee</title>
+<link rel="icon" type="image/png" href="/app_icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+  // Prevent MathJax / KaTeX browser extensions from processing dollar signs as math delimiters
+  window.MathJax = { tex: { inlineMath: [], displayMath: [] }, startup: { typeset: false } };
+  window.katex = window.katex || {};
+</script>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; }
@@ -19,8 +25,45 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulseDot { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
 
-  #app { height: 100vh; display: flex; flex-direction: column; background: #0c0c0e; overflow: hidden; }
+  #app { height: 100vh; display: flex; flex-direction: row; background: #0c0c0e; overflow: hidden; }
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+
+  /* ── SIDEBAR ── */
+  #sidebar {
+    width: 260px; flex: none; background: #131315; border-right: 1px solid rgba(255,255,255,0.06);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .sidebar-header { padding: 16px 14px 10px; }
+  .sidebar-new-btn {
+    width: 100%; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px;
+    background: #26262a; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+    font-size: 13px; color: #e7e7ea; cursor: pointer; transition: background .15s;
+  }
+  .sidebar-new-btn:hover { background: #2f2f33; }
+  .sidebar-label {
+    font-size: 11px; letter-spacing: 0.08em; color: #6a6a70; text-transform: uppercase;
+    padding: 10px 14px 6px;
+  }
+  #chat-list { flex: 1; overflow-y: auto; padding: 0 8px 12px; display: flex; flex-direction: column; gap: 2px; }
+  .chat-list-empty { padding: 10px 8px; font-size: 12px; color: #57575c; }
+  .chat-list-item {
+    padding: 9px 10px; border-radius: 8px; cursor: pointer; transition: background .15s;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .chat-list-item:hover { background: rgba(255,255,255,0.05); }
+  .chat-list-item.active { background: rgba(255,255,255,0.08); }
+  .chat-list-title { font-size: 13px; color: #dcdce0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-list-meta { font-size: 11px; color: #6a6a70; display: flex; align-items: center; gap: 6px; }
+  .chat-list-status {
+    font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.04em;
+    padding: 1px 5px; border-radius: 4px; text-transform: uppercase;
+  }
+  .status-done { background: rgba(108,192,142,0.14); color: #6cc08e; }
+  .status-rejected { background: rgba(224,160,96,0.14); color: #e0a060; }
+  .status-error { background: rgba(224,112,112,0.14); color: #e07070; }
+  .status-running { background: rgba(154,160,166,0.14); color: #9aa0a6; }
 
   /* ── HOME ── */
   #home {
@@ -32,7 +75,9 @@
     background: linear-gradient(150deg, #3a7d5b 0%, #244e3c 100%);
     box-shadow: 0 6px 22px rgba(47,107,79,0.35), inset 0 1px 0 rgba(255,255,255,0.14);
     display: flex; align-items: center; justify-content: center; margin-bottom: 20px;
+    overflow: hidden;
   }
+  .logo-mark img { width: 100%; height: 100%; object-fit: cover; }
   .hero-text {
     text-align: center; font-size: 24px; line-height: 1.35; font-weight: 500;
     color: #ededf0; margin-bottom: 30px;
@@ -76,7 +121,9 @@
     background: linear-gradient(150deg, #3a7d5b 0%, #244e3c 100%);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
     display: flex; align-items: center; justify-content: center; margin-top: 2px;
+    overflow: hidden;
   }
+  .asst-avatar img { width: 100%; height: 100%; object-fit: cover; }
   .asst-body { flex: 1; min-width: 0; }
   .asst-text { font-size: 15px; line-height: 1.55; color: #dcdce0; margin-bottom: 14px; }
 
@@ -238,6 +285,46 @@
     display: flex; justify-content: space-between;
   }
 
+  /* ── NETWORK ── */
+  .network-section { animation: fadeUp .4s ease; margin-top: 4px; }
+  .network-card {
+    border: 1px solid rgba(255,255,255,0.07); border-radius: 13px;
+    background: #0f0f11; overflow: hidden;
+  }
+  .network-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .network-header-label { font-size: 13px; font-weight: 500; color: #c8c8cc; }
+  .network-header-sub { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #7c7c82; }
+  .network-canvas-wrap { position: relative; width: 100%; }
+  canvas#network-canvas { display: block; width: 100%; cursor: crosshair; }
+  .network-tooltip {
+    position: absolute; pointer-events: none;
+    background: #1c1c20; border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px; padding: 11px 14px; max-width: 280px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+    font-size: 12px; line-height: 1.55; color: #c8c8cc;
+    opacity: 0; transition: opacity .15s;
+  }
+  .network-tooltip.visible { opacity: 1; }
+  .network-tooltip-name { font-size: 13px; font-weight: 600; color: #ededf0; margin-bottom: 4px; }
+  .network-tooltip-sector { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6cc08e; margin-bottom: 6px; }
+  .network-tooltip-loc { font-size: 11px; color: #7c7c82; margin-bottom: 5px; }
+  .network-tooltip-sim { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9aa0a6; }
+  .network-tooltip-summary { font-size: 11px; color: #9a9aa0; margin-top: 6px; line-height: 1.5; }
+  .neighbor-list { padding: 12px 15px 14px; border-top: 1px solid rgba(255,255,255,0.05); }
+  .neighbor-list-label { font-size: 11px; font-weight: 500; color: #7c7c82; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .neighbor-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .neighbor-chip {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 8px; padding: 5px 10px; font-size: 12px; color: #c8c8cc;
+    cursor: pointer; transition: background .15s;
+  }
+  .neighbor-chip:hover { background: rgba(255,255,255,0.08); }
+  .neighbor-chip-sim { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6cc08e; }
+
   /* ── BOTTOM COMPOSER ── */
   #composer {
     flex: none; padding: 14px 24px 20px;
@@ -264,18 +351,25 @@
 
 <div id="app">
 
+  <!-- SIDEBAR -->
+  <div id="sidebar">
+    <div class="sidebar-header">
+      <button class="sidebar-new-btn" id="sidebar-new-chat-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>New chat
+      </button>
+    </div>
+    <div class="sidebar-label">History</div>
+    <div id="chat-list"></div>
+  </div>
+
+  <div id="main">
+
   <!-- HOME -->
   <div id="home">
     <div class="logo-mark">
-      <svg width="36" height="36" viewBox="0 0 32 32" fill="none">
-        <path d="M7 24L13 17M13 17L20 19M20 19L26 8M13 17L18 10M20 19L25 17" stroke="#bfe9d2" stroke-width="1.3" stroke-linecap="round" opacity="0.6"/>
-        <circle cx="7" cy="24" r="2.4" fill="#eafff2"/>
-        <circle cx="13" cy="17" r="2.9" fill="#eafff2"/>
-        <circle cx="18" cy="10" r="2.1" fill="#bfe9d2"/>
-        <circle cx="20" cy="19" r="2.4" fill="#eafff2"/>
-        <circle cx="25" cy="17" r="1.8" fill="#bfe9d2"/>
-        <circle cx="26" cy="8" r="3.2" fill="#eafff2"/>
-      </svg>
+      <img src="/app_icon.png" alt="Archer">
     </div>
     <div class="hero-text">I'm Archer, your AI investment team.<br>Deploy the team to make investment decisions.</div>
     <div class="home-input-wrap">
@@ -312,6 +406,8 @@
     </div>
   </div>
 
+  </div>
+
 </div>
 
 <script>
@@ -332,6 +428,7 @@ const AGENT_DISPLAY = {
 
 let state = {
   phase: 'home',   // 'home' | 'running' | 'done'
+  chatId: null,
   query: '',
   company: '',
   agents: {},      // agentId → {status:'pending'|'running'|'done', ticker:'', report:''}
@@ -349,12 +446,12 @@ const $chatBody = document.getElementById('chat-body');
 const $homeTa = document.getElementById('home-textarea');
 const $homeSend = document.getElementById('home-send');
 const $newChat = document.getElementById('new-chat-btn');
+const $sidebarNewChat = document.getElementById('sidebar-new-chat-btn');
+const $chatList = document.getElementById('chat-list');
 const $compPlaceholder = document.getElementById('composer-placeholder');
 
 // ─── Helpers ────────────────────────────────────────────
 function svgIcon(type) {
-  if (type === 'archer')
-    return `<svg width="19" height="19" viewBox="0 0 32 32" fill="none"><path d="M7 24L13 17M13 17L20 19M20 19L26 8M13 17L18 10M20 19L25 17" stroke="#bfe9d2" stroke-width="1.3" stroke-linecap="round" opacity="0.6"/><circle cx="7" cy="24" r="2.4" fill="#eafff2"/><circle cx="13" cy="17" r="2.9" fill="#eafff2"/><circle cx="18" cy="10" r="2.1" fill="#bfe9d2"/><circle cx="20" cy="19" r="2.4" fill="#eafff2"/><circle cx="25" cy="17" r="1.8" fill="#bfe9d2"/><circle cx="26" cy="8" r="3.2" fill="#eafff2"/></svg>`;
   if (type === 'check')
     return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#dff3e8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
   if (type === 'chevron')
@@ -364,7 +461,7 @@ function svgIcon(type) {
 }
 
 function avatar() {
-  return `<div class="asst-avatar">${svgIcon('archer')}</div>`;
+  return `<div class="asst-avatar"><img src="/app_icon.png" alt="Archer"></div>`;
 }
 
 // ─── Render ─────────────────────────────────────────────
@@ -378,8 +475,33 @@ function render() {
   $home.classList.add('hidden');
   $chat.classList.remove('hidden');
 
-  renderChat();
+  if (state.phase === 'checking') {
+    renderChecking();
+  } else {
+    renderChat();
+  }
   scrollBottom();
+}
+
+function renderChecking() {
+  $chatBody.innerHTML = '';
+  const userRow = document.createElement('div');
+  userRow.className = 'user-row';
+  userRow.innerHTML = `<div class="user-bubble">${escHtml(state.query)}</div>`;
+  $chatBody.appendChild(userRow);
+
+  const row = document.createElement('div');
+  row.className = 'asst-row';
+  row.id = 'checking-row';
+  row.innerHTML = `${avatar()}<div class="asst-body"><div class="asst-text" style="color:#7c7c82;display:flex;align-items:center;gap:8px">
+    <span style="display:inline-flex;gap:4px">
+      <span style="width:5px;height:5px;border-radius:50%;background:#57575c;animation:pulseDot 1.2s ease-in-out infinite"></span>
+      <span style="width:5px;height:5px;border-radius:50%;background:#57575c;animation:pulseDot 1.2s ease-in-out .2s infinite"></span>
+      <span style="width:5px;height:5px;border-radius:50%;background:#57575c;animation:pulseDot 1.2s ease-in-out .4s infinite"></span>
+    </span>
+    Reviewing your question…
+  </div></div>`;
+  $chatBody.appendChild(row);
 }
 
 function renderChat() {
@@ -414,7 +536,7 @@ function renderChat() {
     const statusLabel = st === 'done' ? 'Done' : st === 'running' ? 'Running…' : 'Queued';
 
     const report = a.report && isExpanded
-      ? `<div class="agent-report open">${escHtml(a.report)}</div>`
+      ? `<div class="agent-report open">${renderText(a.report)}</div>`
       : `<div class="agent-report"></div>`;
 
     const chevron = st === 'done'
@@ -539,13 +661,24 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// Render LLM output safely: escape HTML, convert **bold** markdown, and
+// insert a zero-width non-joiner after every $ so MathJax/KaTeX extensions
+// cannot form a closing delimiter and enter math mode.
+function renderText(s) {
+  if (!s) return '';
+  return escHtml(s)
+    .replace(/\$(?=\S)/g, '$‌')          // break $word patterns
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')   // **bold**
+    .replace(/\*(.+?)\*/g, '<i>$1</i>');      // *italic*
+}
+
 // ─── Submit ─────────────────────────────────────────────
 function submit(question) {
   question = (question || '').trim();
   if (!question) return;
 
   state = {
-    phase: 'running',
+    phase: 'checking',   // guardrail in-flight; switches to 'running' on start event
     query: question,
     company: '',
     agents: {},
@@ -600,6 +733,8 @@ async function streamAnalysis(question) {
 function handleEvent(ev) {
   if (ev.type === 'start') {
     state.company = ev.company || state.company;
+    state.chatId = ev.chat_id || state.chatId;
+    state.phase = 'running';
     render();
     return;
   }
@@ -634,15 +769,41 @@ function handleEvent(ev) {
     state.memoData = memo;
     state.fullData = data;
     state.company = ev.company || state.company;
+    state.chatId = ev.chat_id || state.chatId;
+    state.neighbors = ev.neighbors || [];
+    state.newPos = ev.new_pos || null;
     state.phase = 'done';
     render();
     scrollBottom();
+    // Load full network then draw
+    loadAndRenderNetwork();
+    loadChatList();
+    return;
+  }
+
+  if (ev.type === 'rejected') {
+    state.chatId = ev.chat_id || state.chatId;
+    showRejected(ev.reason || 'Please ask about investing in a specific company.');
+    loadChatList();
     return;
   }
 
   if (ev.type === 'error') {
     showError(ev.message || 'Unknown error');
   }
+}
+
+function showRejected(reason) {
+  // Replace the checking dots row (or append if already in chat)
+  const checking = document.getElementById('checking-row');
+  if (checking) checking.remove();
+
+  const el = document.createElement('div');
+  el.className = 'asst-row';
+  el.innerHTML = `${avatar()}<div class="asst-body"><div class="asst-text">I can only help with investment decisions on specific companies. ${escHtml(reason)}<br><br>Try asking something like <i>"Should we invest in Stripe?"</i></div></div>`;
+  $chatBody.appendChild(el);
+  state.phase = 'done';
+  scrollBottom();
 }
 
 function showError(msg) {
@@ -656,11 +817,382 @@ function showError(msg) {
 
 function reset() {
   state = {
-    phase: 'home', query: '', company: '', agents: {},
+    phase: 'home', chatId: null, query: '', company: '', agents: {},
     expanded: null, recommendation: null, memoData: null, fullData: null,
   };
   $homeTa.value = '';
   render();
+  highlightActiveChat();
+}
+
+// ─── History sidebar ────────────────────────────────────
+function fmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
+    d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+function highlightActiveChat() {
+  $chatList.querySelectorAll('.chat-list-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === state.chatId);
+  });
+}
+
+async function loadChatList() {
+  let rows = [];
+  try {
+    const res = await fetch('/api/chats');
+    const json = await res.json();
+    rows = json.chats || [];
+  } catch (_) {
+    return; // server/Supabase not reachable — leave sidebar as-is
+  }
+
+  if (!rows.length) {
+    $chatList.innerHTML = `<div class="chat-list-empty">No chats yet</div>`;
+    return;
+  }
+
+  $chatList.innerHTML = rows.map(row => {
+    const title = row.title || row.company || row.question || 'Untitled';
+    const status = row.status || 'running';
+    return `
+      <div class="chat-list-item" data-id="${row.id}">
+        <div class="chat-list-title">${escHtml(title)}</div>
+        <div class="chat-list-meta">
+          <span class="chat-list-status status-${status}">${status}</span>
+          <span>${fmtDate(row.created_at)}</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  $chatList.querySelectorAll('.chat-list-item').forEach(el => {
+    el.addEventListener('click', () => loadChat(el.dataset.id));
+  });
+  highlightActiveChat();
+}
+
+async function loadChat(chatId) {
+  let chat;
+  try {
+    const res = await fetch(`/api/chats/${chatId}`);
+    if (!res.ok) throw new Error('not found');
+    chat = await res.json();
+  } catch (_) {
+    return;
+  }
+
+  const ana = chat.analysis || {};
+  const memo = ana.investment_memo || {};
+  const deck = chat.deck || null;
+
+  const agents = {};
+  AGENT_ORDER.forEach(id => {
+    const key = id.replace(/_agent$/, '');
+    const block = ana[key];
+    if (block) {
+      agents[id] = { status: 'done', ticker: '', report: block.reasoning || JSON.stringify(block, null, 2) };
+    }
+  });
+
+  state = {
+    phase: chat.status === 'done' ? 'done' : 'home',
+    chatId: chat.id,
+    query: chat.question || '',
+    company: chat.company || '',
+    agents,
+    expanded: null,
+    memoData: deck ? { ...memo, presentation_url: deck.public_url, edit_path: memo.edit_path || deck.edit_path } : memo,
+    fullData: { analysis: ana },
+    neighbors: (chat.network_snapshot && chat.network_snapshot.neighbors) || [],
+    newPos: (chat.network_snapshot && chat.network_snapshot.new_pos) || null,
+  };
+
+  if (chat.status === 'rejected') {
+    state.phase = 'running';
+    render();
+    const reason = (chat.messages || []).find(m => m.role === 'assistant');
+    showRejected(chat.error_message || (reason && reason.content) || 'Not an investment question.');
+    highlightActiveChat();
+    return;
+  }
+
+  if (chat.status === 'error') {
+    state.phase = 'running';
+    render();
+    showError(chat.error_message || 'Analysis failed.');
+    highlightActiveChat();
+    return;
+  }
+
+  render();
+  scrollBottom();
+  loadAndRenderNetwork();
+  highlightActiveChat();
+}
+
+// ─── Network ─────────────────────────────────────────────
+let _allNodes = null;
+
+async function loadAndRenderNetwork() {
+  if (!_allNodes) {
+    try {
+      const res = await fetch('/api/network');
+      const json = await res.json();
+      _allNodes = json.nodes;
+    } catch (_) {
+      return; // server not running — skip silently
+    }
+  }
+  renderNetworkPanel();
+}
+
+function renderNetworkPanel() {
+  // Remove any previous network panel
+  document.getElementById('network-panel')?.remove();
+
+  const neighbors = state.neighbors || [];
+  const neighborIds = new Set(neighbors.map(n => n.id));
+  const newPos = state.newPos;
+  const company = state.company;
+
+  const section = document.createElement('div');
+  section.id = 'network-panel';
+  section.className = 'asst-row network-section';
+
+  const neighborChips = neighbors.map(n =>
+    `<div class="neighbor-chip" data-id="${n.id}">
+      <span>${escHtml(n.name)}</span>
+      <span class="neighbor-chip-sim">${(n.similarity * 100).toFixed(0)}%</span>
+    </div>`
+  ).join('');
+
+  section.innerHTML = `
+    ${avatar()}
+    <div class="asst-body">
+      <div class="asst-text">
+        Here's where <b>${escHtml(company)}</b> sits in the Summit portfolio network — based on semantic similarity across sector and business model.
+      </div>
+      <div class="network-card">
+        <div class="network-header">
+          <span class="network-header-label">Portfolio similarity map</span>
+          <span class="network-header-sub">${_allNodes.length} companies · ${neighbors.length} nearest neighbours</span>
+        </div>
+        <div class="network-canvas-wrap">
+          <canvas id="network-canvas" height="520"></canvas>
+          <div class="network-tooltip" id="network-tooltip">
+            <div class="network-tooltip-name" id="tt-name"></div>
+            <div class="network-tooltip-sector" id="tt-sector"></div>
+            <div class="network-tooltip-loc" id="tt-loc"></div>
+            <div class="network-tooltip-sim" id="tt-sim"></div>
+            <div class="network-tooltip-summary" id="tt-summary"></div>
+          </div>
+        </div>
+        ${neighbors.length ? `
+        <div class="neighbor-list">
+          <div class="neighbor-list-label">NEAREST NEIGHBOURS</div>
+          <div class="neighbor-chips" id="neighbor-chips">${neighborChips}</div>
+        </div>` : ''}
+      </div>
+    </div>`;
+
+  $chatBody.appendChild(section);
+  scrollBottom();
+
+  // Wire neighbor chips to highlight on canvas
+  section.querySelectorAll('.neighbor-chip').forEach(chip => {
+    chip.addEventListener('mouseenter', () => {
+      const id = parseInt(chip.dataset.id);
+      highlightNode(id);
+    });
+    chip.addEventListener('mouseleave', () => highlightNode(null));
+  });
+
+  requestAnimationFrame(() => drawNetwork(neighborIds, newPos, company));
+}
+
+function drawNetwork(neighborIds, newPos, company) {
+  const canvas = document.getElementById('network-canvas');
+  if (!canvas || !_allNodes) return;
+
+  const W = canvas.offsetWidth;
+  const H = 520;
+  canvas.width = W * window.devicePixelRatio;
+  canvas.height = H * window.devicePixelRatio;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+  const PAD = 32;
+  const toX = x => PAD + x * (W - PAD * 2);
+  const toY = y => PAD + y * (H - PAD * 2);
+
+  // Background
+  ctx.fillStyle = '#0f0f11';
+  ctx.fillRect(0, 0, W, H);
+
+  const neighbors = state.neighbors || [];
+  const neighborMap = new Map(neighbors.map(n => [n.id, n]));
+
+  // Draw edges from new company to neighbors first
+  if (newPos) {
+    const nx = toX(newPos[0]), ny = toY(newPos[1]);
+    neighbors.forEach(n => {
+      const x = toX(n.x), y = toY(n.y);
+      const alpha = 0.15 + n.similarity * 0.55;
+      ctx.beginPath();
+      ctx.moveTo(nx, ny);
+      ctx.lineTo(x, y);
+      ctx.strokeStyle = `rgba(108,192,142,${alpha})`;
+      ctx.lineWidth = 1 + n.similarity * 1.5;
+      ctx.stroke();
+    });
+  }
+
+  // Draw all portfolio nodes
+  _allNodes.forEach(node => {
+    const x = toX(node.x), y = toY(node.y);
+    const isNeighbor = neighborMap.has(node.id);
+    const sim = neighborMap.get(node.id)?.similarity || 0;
+
+    if (isNeighbor) {
+      // Glow ring
+      ctx.beginPath();
+      ctx.arc(x, y, 7 + sim * 4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(47,107,79,${0.2 + sim * 0.25})`;
+      ctx.fill();
+    }
+
+    ctx.beginPath();
+    ctx.arc(x, y, isNeighbor ? 4.5 : 3, 0, Math.PI * 2);
+    ctx.fillStyle = isNeighbor
+      ? `rgba(108,192,142,${0.6 + sim * 0.4})`
+      : 'rgba(120,120,130,0.45)';
+    ctx.fill();
+
+    // Label for neighbors
+    if (isNeighbor) {
+      ctx.font = `500 10px 'Helvetica Neue', sans-serif`;
+      ctx.fillStyle = 'rgba(200,200,210,0.85)';
+      ctx.fillText(node.name, x + 7, y + 4);
+    }
+  });
+
+  // Draw new company node
+  if (newPos) {
+    const nx = toX(newPos[0]), ny = toY(newPos[1]);
+    // Outer glow
+    const grad = ctx.createRadialGradient(nx, ny, 4, nx, ny, 20);
+    grad.addColorStop(0, 'rgba(58,125,91,0.55)');
+    grad.addColorStop(1, 'rgba(58,125,91,0)');
+    ctx.beginPath();
+    ctx.arc(nx, ny, 20, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    // Core dot
+    ctx.beginPath();
+    ctx.arc(nx, ny, 7, 0, Math.PI * 2);
+    ctx.fillStyle = '#6cc08e';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(nx, ny, 7, 0, Math.PI * 2);
+    ctx.strokeStyle = '#eafff2';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // Label
+    ctx.font = `600 11px 'Helvetica Neue', sans-serif`;
+    ctx.fillStyle = '#eafff2';
+    ctx.fillText(company, nx + 10, ny + 4);
+  }
+
+  // Tooltip on hover
+  const tooltip = document.getElementById('network-tooltip');
+  let _hoveredId = null;
+
+  canvas.onmousemove = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    let hit = null;
+    let hitDist = Infinity;
+
+    _allNodes.forEach(node => {
+      const x = toX(node.x), y = toY(node.y);
+      const d = Math.hypot(mx - x, my - y);
+      const r = neighborMap.has(node.id) ? 7 : 5;
+      if (d < r + 4 && d < hitDist) { hit = node; hitDist = d; }
+    });
+
+    // Also check new company node
+    if (newPos) {
+      const nx = toX(newPos[0]), ny = toY(newPos[1]);
+      const d = Math.hypot(mx - nx, my - ny);
+      if (d < 12 && d < hitDist) {
+        hit = { name: company, sector: '', summary: '', location: '', _isNew: true };
+        hitDist = d;
+      }
+    }
+
+    if (hit && hit.id !== _hoveredId) {
+      _hoveredId = hit.id ?? -1;
+      document.getElementById('tt-name').textContent = hit.name;
+      document.getElementById('tt-sector').textContent = hit.sector || '';
+      document.getElementById('tt-loc').textContent = hit.location || '';
+      const sim = hit._isNew ? null : neighborMap.get(hit.id);
+      document.getElementById('tt-sim').textContent = sim
+        ? `similarity: ${(sim.similarity * 100).toFixed(1)}%` : '';
+      const words = (hit.summary || '').split(' ');
+      document.getElementById('tt-summary').textContent =
+        words.length > 30 ? words.slice(0, 30).join(' ') + '…' : hit.summary || '';
+
+      // Position tooltip
+      const panelRect = canvas.parentElement.getBoundingClientRect();
+      let tx = e.clientX - panelRect.left + 14;
+      let ty = e.clientY - panelRect.top - 20;
+      const ttW = 280;
+      if (tx + ttW > panelRect.width - 10) tx = e.clientX - panelRect.left - ttW - 14;
+      tooltip.style.left = tx + 'px';
+      tooltip.style.top = ty + 'px';
+      tooltip.classList.add('visible');
+      canvas.style.cursor = 'pointer';
+    } else if (!hit) {
+      _hoveredId = null;
+      tooltip.classList.remove('visible');
+      canvas.style.cursor = 'crosshair';
+    }
+  };
+
+  canvas.onmouseleave = () => {
+    tooltip.classList.remove('visible');
+    _hoveredId = null;
+  };
+}
+
+function highlightNode(id) {
+  // Redraw with a specific node highlighted — just re-run draw
+  if (!_allNodes) return;
+  drawNetwork(new Set(state.neighbors?.map(n => n.id) || []), state.newPos, state.company);
+  if (id === null) return;
+  const canvas = document.getElementById('network-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  const W = canvas.offsetWidth, H = 520;
+  const PAD = 32;
+  const node = _allNodes.find(n => n.id === id);
+  if (!node) return;
+  const x = PAD + node.x * (W - PAD * 2);
+  const y = PAD + node.y * (H - PAD * 2);
+  ctx.beginPath();
+  ctx.arc(x, y, 9, 0, Math.PI * 2);
+  ctx.strokeStyle = '#eafff2';
+  ctx.lineWidth = 2;
+  ctx.stroke();
 }
 
 // ─── Event wiring ────────────────────────────────────────
@@ -669,9 +1201,11 @@ $homeTa.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit($homeTa.value); }
 });
 $newChat.addEventListener('click', reset);
+$sidebarNewChat.addEventListener('click', reset);
 
 // Initial render
 render();
+loadChatList();
 </script>
 </body>
 </html>

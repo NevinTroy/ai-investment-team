@@ -6,6 +6,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8080", "--directory", "frontend"],
       "port": 8080
+    },
+    {
+      "name": "archer-api",
+      "runtimeExecutable": "poetry",
+      "runtimeArgs": ["run", "uvicorn", "committee.api:app", "--port", "8000"],
+      "port": 8000
     }
   ]
 }
