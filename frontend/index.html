@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Archer — Investment Committee</title>
+<link rel="icon" type="image/png" href="/app_icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -26,7 +27,43 @@
   @keyframes fadeUp { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes pulseDot { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
 
-  #app { height: 100vh; display: flex; flex-direction: column; background: #0c0c0e; overflow: hidden; }
+  #app { height: 100vh; display: flex; flex-direction: row; background: #0c0c0e; overflow: hidden; }
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+
+  /* ── SIDEBAR ── */
+  #sidebar {
+    width: 260px; flex: none; background: #131315; border-right: 1px solid rgba(255,255,255,0.06);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .sidebar-header { padding: 16px 14px 10px; }
+  .sidebar-new-btn {
+    width: 100%; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px;
+    background: #26262a; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+    font-size: 13px; color: #e7e7ea; cursor: pointer; transition: background .15s;
+  }
+  .sidebar-new-btn:hover { background: #2f2f33; }
+  .sidebar-label {
+    font-size: 11px; letter-spacing: 0.08em; color: #6a6a70; text-transform: uppercase;
+    padding: 10px 14px 6px;
+  }
+  #chat-list { flex: 1; overflow-y: auto; padding: 0 8px 12px; display: flex; flex-direction: column; gap: 2px; }
+  .chat-list-empty { padding: 10px 8px; font-size: 12px; color: #57575c; }
+  .chat-list-item {
+    padding: 9px 10px; border-radius: 8px; cursor: pointer; transition: background .15s;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .chat-list-item:hover { background: rgba(255,255,255,0.05); }
+  .chat-list-item.active { background: rgba(255,255,255,0.08); }
+  .chat-list-title { font-size: 13px; color: #dcdce0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-list-meta { font-size: 11px; color: #6a6a70; display: flex; align-items: center; gap: 6px; }
+  .chat-list-status {
+    font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.04em;
+    padding: 1px 5px; border-radius: 4px; text-transform: uppercase;
+  }
+  .status-done { background: rgba(108,192,142,0.14); color: #6cc08e; }
+  .status-rejected { background: rgba(224,160,96,0.14); color: #e0a060; }
+  .status-error { background: rgba(224,112,112,0.14); color: #e07070; }
+  .status-running { background: rgba(154,160,166,0.14); color: #9aa0a6; }
 
   /* ── HOME ── */
   #home {
@@ -38,7 +75,9 @@
     background: linear-gradient(150deg, #3a7d5b 0%, #244e3c 100%);
     box-shadow: 0 6px 22px rgba(47,107,79,0.35), inset 0 1px 0 rgba(255,255,255,0.14);
     display: flex; align-items: center; justify-content: center; margin-bottom: 20px;
+    overflow: hidden;
   }
+  .logo-mark img { width: 100%; height: 100%; object-fit: cover; }
   .hero-text {
     text-align: center; font-size: 24px; line-height: 1.35; font-weight: 500;
     color: #ededf0; margin-bottom: 30px;
@@ -82,7 +121,9 @@
     background: linear-gradient(150deg, #3a7d5b 0%, #244e3c 100%);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
     display: flex; align-items: center; justify-content: center; margin-top: 2px;
+    overflow: hidden;
   }
+  .asst-avatar img { width: 100%; height: 100%; object-fit: cover; }
   .asst-body { flex: 1; min-width: 0; }
   .asst-text { font-size: 15px; line-height: 1.55; color: #dcdce0; margin-bottom: 14px; }
 
@@ -310,18 +351,25 @@
 
 <div id="app">
 
+  <!-- SIDEBAR -->
+  <div id="sidebar">
+    <div class="sidebar-header">
+      <button class="sidebar-new-btn" id="sidebar-new-chat-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>New chat
+      </button>
+    </div>
+    <div class="sidebar-label">History</div>
+    <div id="chat-list"></div>
+  </div>
+
+  <div id="main">
+
   <!-- HOME -->
   <div id="home">
     <div class="logo-mark">
-      <svg width="36" height="36" viewBox="0 0 32 32" fill="none">
-        <path d="M7 24L13 17M13 17L20 19M20 19L26 8M13 17L18 10M20 19L25 17" stroke="#bfe9d2" stroke-width="1.3" stroke-linecap="round" opacity="0.6"/>
-        <circle cx="7" cy="24" r="2.4" fill="#eafff2"/>
-        <circle cx="13" cy="17" r="2.9" fill="#eafff2"/>
-        <circle cx="18" cy="10" r="2.1" fill="#bfe9d2"/>
-        <circle cx="20" cy="19" r="2.4" fill="#eafff2"/>
-        <circle cx="25" cy="17" r="1.8" fill="#bfe9d2"/>
-        <circle cx="26" cy="8" r="3.2" fill="#eafff2"/>
-      </svg>
+      <img src="/app_icon.png" alt="Archer">
     </div>
     <div class="hero-text">I'm Archer, your AI investment team.<br>Deploy the team to make investment decisions.</div>
     <div class="home-input-wrap">
@@ -358,6 +406,8 @@
     </div>
   </div>
 
+  </div>
+
 </div>
 
 <script>
@@ -378,6 +428,7 @@ const AGENT_DISPLAY = {
 
 let state = {
   phase: 'home',   // 'home' | 'running' | 'done'
+  chatId: null,
   query: '',
   company: '',
   agents: {},      // agentId → {status:'pending'|'running'|'done', ticker:'', report:''}
@@ -395,12 +446,12 @@ const $chatBody = document.getElementById('chat-body');
 const $homeTa = document.getElementById('home-textarea');
 const $homeSend = document.getElementById('home-send');
 const $newChat = document.getElementById('new-chat-btn');
+const $sidebarNewChat = document.getElementById('sidebar-new-chat-btn');
+const $chatList = document.getElementById('chat-list');
 const $compPlaceholder = document.getElementById('composer-placeholder');
 
 // ─── Helpers ────────────────────────────────────────────
 function svgIcon(type) {
-  if (type === 'archer')
-    return `<svg width="19" height="19" viewBox="0 0 32 32" fill="none"><path d="M7 24L13 17M13 17L20 19M20 19L26 8M13 17L18 10M20 19L25 17" stroke="#bfe9d2" stroke-width="1.3" stroke-linecap="round" opacity="0.6"/><circle cx="7" cy="24" r="2.4" fill="#eafff2"/><circle cx="13" cy="17" r="2.9" fill="#eafff2"/><circle cx="18" cy="10" r="2.1" fill="#bfe9d2"/><circle cx="20" cy="19" r="2.4" fill="#eafff2"/><circle cx="25" cy="17" r="1.8" fill="#bfe9d2"/><circle cx="26" cy="8" r="3.2" fill="#eafff2"/></svg>`;
   if (type === 'check')
     return `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#dff3e8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
   if (type === 'chevron')
@@ -410,7 +461,7 @@ function svgIcon(type) {
 }
 
 function avatar() {
-  return `<div class="asst-avatar">${svgIcon('archer')}</div>`;
+  return `<div class="asst-avatar"><img src="/app_icon.png" alt="Archer"></div>`;
 }
 
 // ─── Render ─────────────────────────────────────────────
@@ -682,6 +733,7 @@ async function streamAnalysis(question) {
 function handleEvent(ev) {
   if (ev.type === 'start') {
     state.company = ev.company || state.company;
+    state.chatId = ev.chat_id || state.chatId;
     state.phase = 'running';
     render();
     return;
@@ -717,6 +769,7 @@ function handleEvent(ev) {
     state.memoData = memo;
     state.fullData = data;
     state.company = ev.company || state.company;
+    state.chatId = ev.chat_id || state.chatId;
     state.neighbors = ev.neighbors || [];
     state.newPos = ev.new_pos || null;
     state.phase = 'done';
@@ -724,11 +777,14 @@ function handleEvent(ev) {
     scrollBottom();
     // Load full network then draw
     loadAndRenderNetwork();
+    loadChatList();
     return;
   }
 
   if (ev.type === 'rejected') {
+    state.chatId = ev.chat_id || state.chatId;
     showRejected(ev.reason || 'Please ask about investing in a specific company.');
+    loadChatList();
     return;
   }
 
@@ -761,11 +817,120 @@ function showError(msg) {
 
 function reset() {
   state = {
-    phase: 'home', query: '', company: '', agents: {},
+    phase: 'home', chatId: null, query: '', company: '', agents: {},
     expanded: null, recommendation: null, memoData: null, fullData: null,
   };
   $homeTa.value = '';
   render();
+  highlightActiveChat();
+}
+
+// ─── History sidebar ────────────────────────────────────
+function fmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
+    d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+function highlightActiveChat() {
+  $chatList.querySelectorAll('.chat-list-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === state.chatId);
+  });
+}
+
+async function loadChatList() {
+  let rows = [];
+  try {
+    const res = await fetch('/api/chats');
+    const json = await res.json();
+    rows = json.chats || [];
+  } catch (_) {
+    return; // server/Supabase not reachable — leave sidebar as-is
+  }
+
+  if (!rows.length) {
+    $chatList.innerHTML = `<div class="chat-list-empty">No chats yet</div>`;
+    return;
+  }
+
+  $chatList.innerHTML = rows.map(row => {
+    const title = row.title || row.company || row.question || 'Untitled';
+    const status = row.status || 'running';
+    return `
+      <div class="chat-list-item" data-id="${row.id}">
+        <div class="chat-list-title">${escHtml(title)}</div>
+        <div class="chat-list-meta">
+          <span class="chat-list-status status-${status}">${status}</span>
+          <span>${fmtDate(row.created_at)}</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  $chatList.querySelectorAll('.chat-list-item').forEach(el => {
+    el.addEventListener('click', () => loadChat(el.dataset.id));
+  });
+  highlightActiveChat();
+}
+
+async function loadChat(chatId) {
+  let chat;
+  try {
+    const res = await fetch(`/api/chats/${chatId}`);
+    if (!res.ok) throw new Error('not found');
+    chat = await res.json();
+  } catch (_) {
+    return;
+  }
+
+  const ana = chat.analysis || {};
+  const memo = ana.investment_memo || {};
+  const deck = chat.deck || null;
+
+  const agents = {};
+  AGENT_ORDER.forEach(id => {
+    const key = id.replace(/_agent$/, '');
+    const block = ana[key];
+    if (block) {
+      agents[id] = { status: 'done', ticker: '', report: block.reasoning || JSON.stringify(block, null, 2) };
+    }
+  });
+
+  state = {
+    phase: chat.status === 'done' ? 'done' : 'home',
+    chatId: chat.id,
+    query: chat.question || '',
+    company: chat.company || '',
+    agents,
+    expanded: null,
+    memoData: deck ? { ...memo, presentation_url: deck.public_url, edit_path: memo.edit_path || deck.edit_path } : memo,
+    fullData: { analysis: ana },
+    neighbors: (chat.network_snapshot && chat.network_snapshot.neighbors) || [],
+    newPos: (chat.network_snapshot && chat.network_snapshot.new_pos) || null,
+  };
+
+  if (chat.status === 'rejected') {
+    state.phase = 'running';
+    render();
+    const reason = (chat.messages || []).find(m => m.role === 'assistant');
+    showRejected(chat.error_message || (reason && reason.content) || 'Not an investment question.');
+    highlightActiveChat();
+    return;
+  }
+
+  if (chat.status === 'error') {
+    state.phase = 'running';
+    render();
+    showError(chat.error_message || 'Analysis failed.');
+    highlightActiveChat();
+    return;
+  }
+
+  render();
+  scrollBottom();
+  loadAndRenderNetwork();
+  highlightActiveChat();
 }
 
 // ─── Network ─────────────────────────────────────────────
@@ -1036,9 +1201,11 @@ $homeTa.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit($homeTa.value); }
 });
 $newChat.addEventListener('click', reset);
+$sidebarNewChat.addEventListener('click', reset);
 
 // Initial render
 render();
+loadChatList();
 </script>
 </body>
 </html>

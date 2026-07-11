@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -30,6 +30,19 @@ from committee.graph import build_committee  # noqa: E402
 from committee.agents.investment_memo import investment_memo_agent  # noqa: E402
 from committee.main import _base_metadata, _extract_company, _normalize_question  # noqa: E402
 from committee.network import find_neighbors, get_network_data, precompute  # noqa: E402
+from committee.persistence import (  # noqa: E402
+    create_chat,
+    download_and_store_deck,
+    get_chat,
+    list_chats,
+    mark_chat_error,
+    mark_chat_rejected,
+    save_agent_output,
+    save_assistant_message,
+    save_chat_result,
+    save_network_neighbors,
+    save_user_message,
+)
 from src.utils.progress import progress  # noqa: E402
 from src.utils.llm import call_llm  # noqa: E402
 from langchain_core.messages import HumanMessage  # noqa: E402
@@ -38,7 +51,10 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Investment Committee API")
 
-_executor = ThreadPoolExecutor(max_workers=2)
+# max_workers=4: each request already dispatches _run_analysis + find_neighbors,
+# plus several more blocking Supabase persistence calls (create/update chat,
+# save messages, download+upload the deck PDF).
+_executor = ThreadPoolExecutor(max_workers=4)
 
 # Precompute embeddings at startup in the background so first request is fast
 @app.on_event("startup")
@@ -84,6 +100,7 @@ AGENT_DISPLAY = {
 }
 
 FRONTEND_DIR = _repo_root / "frontend"
+APP_ICON_PATH = _repo_root / "app_icon.png"
 
 
 class AnalyzeRequest(BaseModel):
@@ -139,8 +156,12 @@ async def analyze(req: AnalyzeRequest):
         lambda: _check_guardrail(req.question, metadata),
     )
     if not guard.allowed:
+        chat_id = await loop.run_in_executor(_executor, lambda: create_chat(req.question, ""))
+        await loop.run_in_executor(_executor, lambda: save_user_message(chat_id, req.question))
+        await loop.run_in_executor(_executor, lambda: mark_chat_rejected(chat_id, guard.reason))
+
         async def _reject():
-            yield f"data: {json.dumps({'type': 'rejected', 'reason': guard.reason})}\n\n"
+            yield f"data: {json.dumps({'type': 'rejected', 'reason': guard.reason, 'chat_id': chat_id})}\n\n"
         return StreamingResponse(_reject(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
@@ -157,10 +178,20 @@ async def analyze(req: AnalyzeRequest):
         })
         loop.call_soon_threadsafe(queue.put_nowait, event)
 
+        # This handler runs on the executor thread (agents call
+        # progress.update_status() synchronously from inside _run_analysis),
+        # so a blocking Supabase write here is safe. Only the final "Done"
+        # update carries the agent's verbose JSON output.
+        if analysis:
+            save_agent_output(chat_id, agent_name, ticker, analysis)
+
     progress.register_handler(handler)
 
     company = _extract_company(req.question, metadata)
     question = _normalize_question(req.question, company)
+
+    chat_id = await loop.run_in_executor(_executor, lambda: create_chat(question, company))
+    await loop.run_in_executor(_executor, lambda: save_user_message(chat_id, question))
 
     async def _task():
         try:
@@ -186,15 +217,47 @@ async def analyze(req: AnalyzeRequest):
             except Exception:
                 neighbors, new_pos = [], (0.5, 0.5)
 
+            # Persist the run. Kept out of the live SSE latency path where possible
+            # (deck download/upload happens here but never blocks/breaks the
+            # 'complete' event below — the live PDF viewer keeps using the
+            # original Presenton URL; the Supabase-hosted copy is only used
+            # when a chat is reloaded from history).
+            try:
+                await loop.run_in_executor(
+                    _executor,
+                    lambda: save_chat_result(chat_id, ana, neighbors, new_pos),
+                )
+                await loop.run_in_executor(
+                    _executor,
+                    lambda: save_network_neighbors(chat_id, company, neighbors),
+                )
+                if memo.get("presentation_url"):
+                    await loop.run_in_executor(
+                        _executor,
+                        lambda: download_and_store_deck(
+                            chat_id, memo["presentation_url"], memo.get("edit_path", ""), company
+                        ),
+                    )
+                await loop.run_in_executor(
+                    _executor,
+                    lambda: save_assistant_message(
+                        chat_id, memo.get("recommendation_headline") or "Analysis complete"
+                    ),
+                )
+            except Exception:
+                logger.exception("Persistence step failed for chat %s", chat_id)
+
             await queue.put(json.dumps({
                 "type": "complete",
                 "data": data,
                 "company": company,
                 "neighbors": neighbors,
                 "new_pos": new_pos,
+                "chat_id": chat_id,
             }))
         except Exception as exc:
             logger.exception("Analysis failed")
+            await loop.run_in_executor(_executor, lambda: mark_chat_error(chat_id, str(exc)))
             await queue.put(json.dumps({"type": "error", "message": str(exc)}))
         finally:
             progress.unregister_handler(handler)
@@ -204,7 +267,7 @@ async def analyze(req: AnalyzeRequest):
 
     async def stream():
         # send company name immediately so the UI can show it
-        yield f"data: {json.dumps({'type': 'start', 'company': company, 'question': question})}\n\n"
+        yield f"data: {json.dumps({'type': 'start', 'company': company, 'question': question, 'chat_id': chat_id})}\n\n"
         while True:
             item = await queue.get()
             if item is None:
@@ -223,6 +286,27 @@ async def network():
     loop = asyncio.get_event_loop()
     nodes = await loop.run_in_executor(_executor, get_network_data)
     return {"nodes": nodes}
+
+
+@app.get("/api/chats")
+async def chats():
+    loop = asyncio.get_event_loop()
+    rows = await loop.run_in_executor(_executor, list_chats)
+    return {"chats": rows}
+
+
+@app.get("/api/chats/{chat_id}")
+async def chat_detail(chat_id: str):
+    loop = asyncio.get_event_loop()
+    chat = await loop.run_in_executor(_executor, lambda: get_chat(chat_id))
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return chat
+
+
+@app.get("/app_icon.png")
+async def app_icon():
+    return FileResponse(APP_ICON_PATH, media_type="image/png")
 
 
 @app.get("/", response_class=HTMLResponse)
