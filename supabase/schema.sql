@@ -78,3 +78,23 @@ create table if not exists network_neighbors (
 );
 create index if not exists network_neighbors_chat_id_idx on network_neighbors (chat_id);
 create index if not exists network_neighbors_company_idx on network_neighbors (company);
+
+-- Scheduled reruns for watchlist decisions. When the committee returns
+-- "watchlist", the user can schedule a follow-up: the due date lives here
+-- (the Google Calendar event is just their personal reminder — the app
+-- prompts from this table), and the rerun only happens after the user
+-- approves it in the UI. rerun_chat_id links the fresh analysis chat back
+-- to the original watchlist chat.
+create table if not exists followups (
+  id uuid primary key default gen_random_uuid(),
+  chat_id uuid not null references chats(id) on delete cascade,
+  company text not null,
+  question text not null,
+  due_date date not null,
+  status text not null default 'pending'
+    check (status in ('pending', 'done', 'dismissed')),
+  rerun_chat_id uuid references chats(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists followups_status_due_idx on followups (status, due_date);
