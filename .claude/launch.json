@@ -2,16 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "archer-frontend",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8080", "--directory", "frontend"],
-      "port": 8080
-    },
-    {
       "name": "archer-api",
       "runtimeExecutable": "poetry",
       "runtimeArgs": ["run", "uvicorn", "committee.api:app", "--port", "8000"],
       "port": 8000
+    },
+    {
+      "name": "archer-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
+      "port": 3000
     }
   ]
 }

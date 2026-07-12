@@ -311,3 +311,71 @@ def get_chat(chat_id: str) -> dict | None:
     except Exception:
         logger.exception("get_chat failed for chat %s", chat_id)
         return None
+
+
+def create_followup(chat_id: str | None, company: str, question: str, due_date: str) -> dict | None:
+    """Schedule a watchlist rerun. due_date is an ISO date string (YYYY-MM-DD)."""
+    if not chat_id or not due_date:
+        return None
+    client = get_supabase_client()
+    if client is None:
+        return None
+    try:
+        row = {
+            "chat_id": chat_id,
+            "company": company or "",
+            "question": question or "",
+            "due_date": due_date,
+            "status": "pending",
+        }
+        res = client.table("followups").insert(row).execute()
+        return res.data[0] if res.data else None
+    except Exception:
+        logger.exception("create_followup failed for chat %s", chat_id)
+        return None
+
+
+def list_due_followups() -> list[dict]:
+    """Pending followups whose due date has arrived (server local date)."""
+    client = get_supabase_client()
+    if client is None:
+        return []
+    try:
+        from datetime import date
+        res = (
+            client.table("followups")
+            .select("*")
+            .eq("status", "pending")
+            .lte("due_date", date.today().isoformat())
+            .order("due_date")
+            .execute()
+        )
+        return res.data or []
+    except Exception:
+        logger.exception("list_due_followups failed")
+        return []
+
+
+def complete_followup(followup_id: str, rerun_chat_id: str | None) -> None:
+    _update_followup(followup_id, "done", rerun_chat_id=rerun_chat_id)
+
+
+def dismiss_followup(followup_id: str) -> None:
+    _update_followup(followup_id, "dismissed")
+
+
+def _update_followup(followup_id: str, status: str, **fields: Any) -> None:
+    if not followup_id:
+        return
+    client = get_supabase_client()
+    if client is None:
+        return
+    try:
+        from datetime import datetime, timezone
+        client.table("followups").update({
+            "status": status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            **fields,
+        }).eq("id", followup_id).execute()
+    except Exception:
+        logger.exception("update followup failed for %s", followup_id)

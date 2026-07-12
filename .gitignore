@@ -52,4 +52,11 @@ committee/founder_images/
 # PDF exports
 *.pdf
 
+# Next.js frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+frontend/*.tsbuildinfo
+
 /scratchpad/
