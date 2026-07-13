@@ -168,21 +168,25 @@ export default function Page() {
   }, [refreshChats]);
 
   // Dev-only: /?stub=watchlist renders a fake done-state so the follow-up
-  // card can be exercised without burning a live analysis.
+  // card can be exercised without burning a live analysis. Anchored to the
+  // most recent completed chat so scheduling writes a real followup row.
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     if (new URLSearchParams(window.location.search).get("stub") !== "watchlist") return;
-    dispatch({
-      type: "loadedChat",
-      state: {
-        phase: "done",
-        fromHistory: false,
-        chatId: null,
-        query: "Should we invest in StubCo?",
-        company: "StubCo",
-        agents: {},
-        memoData: { recommendation: "watchlist", recommendation_headline: "Watchlist" },
-      },
+    listChats().then((rows) => {
+      const done = rows.find((c) => c.status === "done");
+      dispatch({
+        type: "loadedChat",
+        state: {
+          phase: "done",
+          fromHistory: false,
+          chatId: done?.id || null,
+          query: done?.question || "Should we invest in StubCo?",
+          company: done?.company || "StubCo",
+          agents: {},
+          memoData: { recommendation: "watchlist", recommendation_headline: "Watchlist" },
+        },
+      });
     });
   }, []);
 
