@@ -48,7 +48,7 @@ def get_supabase_client():
     return _client
 
 
-def create_chat(question: str, company: str) -> str | None:
+def create_chat(question: str, company: str, sector: str = "") -> str | None:
     """Insert a new chat row with status='running'. Returns the chat_id, or None on failure."""
     client = get_supabase_client()
     if client is None:
@@ -57,6 +57,7 @@ def create_chat(question: str, company: str) -> str | None:
         row = {
             "title": company or (question[:80] if question else "Untitled"),
             "company": company or "",
+            "sector": sector or "",
             "question": question,
             "status": "running",
         }
@@ -264,7 +265,7 @@ def list_chats(limit: int = 50) -> list[dict]:
     try:
         res = (
             client.table("chats")
-            .select("id,title,company,question,status,created_at")
+            .select("id,title,company,sector,question,status,created_at")
             .order("created_at", desc=True)
             .limit(limit)
             .execute()

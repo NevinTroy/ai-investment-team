@@ -79,6 +79,7 @@ export interface ChatSummary {
   id: string;
   title: string | null;
   company: string | null;
+  sector: string | null;
   question: string;
   status: "running" | "done" | "rejected" | "error";
   created_at: string;
