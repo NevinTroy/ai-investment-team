@@ -64,17 +64,37 @@ create table if not exists agent_outputs (
 );
 create index if not exists agent_outputs_chat_id_idx on agent_outputs (chat_id);
 
+-- The Summit portfolio corpus (summit_portfolio_companies.json), one row per
+-- company. `id` is the company's INDEX in that JSON array — the same integer
+-- committee/network.py emits as a neighbour's id and stores in
+-- network_neighbors.neighbor_id — so the two line up as a foreign key.
+-- Seed/refresh it from the JSON with: poetry run python scripts/seed_portfolio_companies.py
+create table if not exists portfolio_companies (
+  id integer primary key,
+  name text not null,
+  location text,
+  sector text,
+  summary text,
+  site text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists portfolio_companies_sector_idx on portfolio_companies (sector);
+
 -- One row per portfolio neighbour in the top-10 similarity ranking for a
 -- given analysis, alongside the compact copy already nested in
 -- chats.network_snapshot — lets you query neighbour relationships directly
 -- (e.g. "which analyses had Airtable in the top 10", "avg similarity for
--- Notion's neighbours") instead of unpacking JSON.
+-- Notion's neighbours") instead of unpacking JSON. neighbor_id references
+-- portfolio_companies(id), so seed portfolio_companies before running analyses
+-- (unseeded, the FK rejects neighbour inserts — persistence is fail-soft, so
+-- they are logged and skipped rather than breaking the live run).
 create table if not exists network_neighbors (
   id uuid primary key default gen_random_uuid(),
   chat_id uuid not null references chats(id) on delete cascade,
   company text not null,
   rank smallint not null,
-  neighbor_id integer not null,
+  neighbor_id integer not null references portfolio_companies(id),
   neighbor_name text not null,
   neighbor_sector text,
   similarity double precision not null,
@@ -85,6 +105,12 @@ create table if not exists network_neighbors (
 );
 create index if not exists network_neighbors_chat_id_idx on network_neighbors (chat_id);
 create index if not exists network_neighbors_company_idx on network_neighbors (company);
+create index if not exists network_neighbors_neighbor_id_idx on network_neighbors (neighbor_id);
+-- If network_neighbors already exists without the FK, seed portfolio_companies
+-- first (so every existing neighbor_id resolves), then add the constraint:
+--   alter table network_neighbors
+--     add constraint network_neighbors_neighbor_id_fkey
+--     foreign key (neighbor_id) references portfolio_companies(id);
 
 -- Scheduled reruns for watchlist decisions. When the committee returns
 -- "watchlist", the user can schedule a follow-up: the due date lives here

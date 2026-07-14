@@ -34,7 +34,7 @@ logger = logging.getLogger("committee.sql_agent")
 MAX_ROWS = 50
 
 # The tables the agent is allowed to read. Mirrors supabase/schema.sql.
-KNOWN_TABLES = ("chats", "messages", "agent_outputs", "decks", "network_neighbors", "followups")
+KNOWN_TABLES = ("chats", "messages", "agent_outputs", "decks", "network_neighbors", "followups", "portfolio_companies")
 
 # PostgREST filter operators the agent may use — all read-only comparisons.
 _FILTER_OPS = {"eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "in", "is"}
@@ -137,6 +137,12 @@ _SYSTEM_PROMPT = (
     "a short comma-separated list like 'fintech, finance', so match it with the "
     "ilike operator and wildcards (e.g. filter {\"column\": \"sector\", \"op\": "
     "\"ilike\", \"value\": \"%fintech%\"}) rather than exact equality.\n\n"
+    "`portfolio_companies` is the Summit portfolio corpus (reference data, one row "
+    "per company: id, name, location, sector, summary, site) — use it for questions "
+    "about the portfolio itself. `network_neighbors` links an analysis to its most "
+    "similar portfolio companies: its neighbor_id column is a portfolio_companies.id, "
+    "so to name a chat's neighbours, read network_neighbors for that chat_id and look "
+    "up each neighbor_id in portfolio_companies (neighbor_name is also stored inline).\n\n"
     "After you get the rows, answer the user's question in plain English and, when "
     "useful, list the matching companies. If a query errors, read the message, fix "
     "your arguments, and retry."

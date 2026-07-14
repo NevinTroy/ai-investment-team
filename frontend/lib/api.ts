@@ -55,22 +55,22 @@ export function dismissFollowup(followupId: string): void {
 }
 
 /**
- * POST /api/analyze and stream the SSE events back through `onEvent`.
- * (EventSource doesn't support POST bodies, so this reads the response
- * body as a stream and parses `data: {...}` lines — same approach as the
- * original vanilla frontend.)
+ * POST to an SSE endpoint and stream `data: {...}` events back through `onEvent`.
+ * (EventSource doesn't support POST bodies, so this reads the response body as a
+ * stream and parses the lines — same approach as the original vanilla frontend.)
  */
-export async function streamAnalysis(
-  question: string,
+async function streamSSE(
+  url: string,
+  body: unknown,
   onEvent: (ev: AnalyzeEvent) => void,
   onNetworkError: () => void,
 ): Promise<void> {
   let res: Response;
   try {
-    res = await fetch("/api/analyze", {
+    res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify(body ?? {}),
     });
   } catch {
     onNetworkError();
@@ -97,4 +97,25 @@ export async function streamAnalysis(
       }
     }
   }
+}
+
+/** POST /api/analyze and stream the SSE events back through `onEvent`. */
+export function streamAnalysis(
+  question: string,
+  onEvent: (ev: AnalyzeEvent) => void,
+  onNetworkError: () => void,
+): Promise<void> {
+  return streamSSE("/api/analyze", { question }, onEvent, onNetworkError);
+}
+
+/**
+ * Run a scheduled watchlist revisit: re-research the company and stream a diff
+ * against its original analysis (no deck). The backend marks the follow-up done.
+ */
+export function streamRerun(
+  followupId: string,
+  onEvent: (ev: AnalyzeEvent) => void,
+  onNetworkError: () => void,
+): Promise<void> {
+  return streamSSE(`/api/followups/${followupId}/rerun`, {}, onEvent, onNetworkError);
 }
