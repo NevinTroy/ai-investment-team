@@ -214,6 +214,12 @@ def _print_result(company: str, data: dict) -> None:
         print(json.dumps(competitive, indent=2))
         produced = True
 
+    risk = analysis.get("risk_analyst")
+    if risk:
+        print("Risk Analyst:")
+        print(json.dumps(risk, indent=2))
+        produced = True
+
     memo = analysis.get("investment_memo")
     if memo:
         print("Investment Memo:")

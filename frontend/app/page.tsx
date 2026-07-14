@@ -20,6 +20,7 @@ import type {
   Followup,
   MemoData,
   Neighbor,
+  Synthesis,
 } from "@/lib/types";
 
 export interface AppState {
@@ -30,6 +31,7 @@ export interface AppState {
   agents: Record<string, AgentRowState>;
   expanded: string | null;
   memoData: MemoData | null;
+  synthesis: Synthesis | null;
   neighbors: Neighbor[];
   newPos: [number, number] | null;
   selectedAgents: string[] | null; // node names picked by the orchestrator; null → show all
@@ -47,6 +49,7 @@ const initialState: AppState = {
   agents: {},
   expanded: null,
   memoData: null,
+  synthesis: null,
   neighbors: [],
   newPos: null,
   selectedAgents: null,
@@ -133,6 +136,7 @@ function reducer(state: AppState, action: Action): AppState {
             ...state,
             phase: "done",
             memoData: (ana.investment_memo as MemoData) || null,
+            synthesis: ev.synthesis || null,
             company: ev.company || state.company,
             chatId: ev.chat_id || state.chatId,
             neighbors: ev.neighbors || [],
@@ -219,7 +223,9 @@ export default function Page() {
     if (!chat) return;
 
     const ana = chat.analysis || {};
-    const memo = (ana.investment_memo as MemoData) || {};
+    // Narrow (single-analyst) runs have no memo — keep memoData null so the
+    // PDF/watchlist sections don't render on reload.
+    const memo = (ana.investment_memo as MemoData) || null;
     const deck = chat.deck;
 
     const agents: Record<string, AgentRowState> = {};
@@ -238,9 +244,11 @@ export default function Page() {
       query: chat.question || "",
       company: chat.company || "",
       agents,
-      memoData: deck
-        ? { ...memo, presentation_url: deck.public_url, edit_path: memo.edit_path || deck.edit_path || undefined }
-        : memo,
+      memoData:
+        memo && deck
+          ? { ...memo, presentation_url: deck.public_url, edit_path: memo.edit_path || deck.edit_path || undefined }
+          : memo,
+      synthesis: chat.synthesis || null,
       neighbors: chat.network_snapshot?.neighbors || [],
       newPos: chat.network_snapshot?.new_pos || null,
       selectedAgents: Object.keys(agents).length ? Object.keys(agents) : null,
@@ -290,7 +298,7 @@ export default function Page() {
           <ChatView
             state={state}
             onToggleAgent={(id) => dispatch({ type: "toggleAgent", id })}
-            onNewChat={() => dispatch({ type: "reset" })}
+            onSubmit={(q) => submit(q)}
           />
         )}
       </div>

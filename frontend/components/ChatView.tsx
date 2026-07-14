@@ -1,23 +1,32 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Avatar from "./Avatar";
 import AgentsCard from "./AgentsCard";
 import PdfSection from "./PdfSection";
 import FollowupCard from "./FollowupCard";
 import NetworkPanel from "./NetworkPanel";
+import SynthesisCard from "./SynthesisCard";
 import type { AppState } from "@/app/page";
 
 export default function ChatView({
   state,
   onToggleAgent,
-  onNewChat,
+  onSubmit,
 }: {
   state: AppState;
   onToggleAgent: (id: string) => void;
-  onNewChat: () => void;
+  onSubmit: (question: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [draft, setDraft] = useState("");
+
+  const send = () => {
+    const q = draft.trim();
+    if (!q) return;
+    setDraft("");
+    onSubmit(q);
+  };
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -119,11 +128,18 @@ export default function ChatView({
             <PdfSection memo={state.memoData} company={state.company} />
           )}
 
+          {/* Direct answer for narrow runs (no memo). */}
+          {state.phase === "done" && state.synthesis && !state.rejectedReason && !state.errorMessage && (
+            <SynthesisCard synthesis={state.synthesis} />
+          )}
+
           {showWatchlistCard && (
             <FollowupCard chatId={state.chatId} company={state.company} question={state.query} />
           )}
 
-          {state.phase === "done" && !state.rejectedReason && !state.errorMessage && (
+          {/* Network graph only on a full investment run (narrow questions
+              return no portfolio position). */}
+          {state.phase === "done" && !state.rejectedReason && !state.errorMessage && state.newPos && (
             <NetworkPanel neighbors={state.neighbors} newPos={state.newPos} company={state.company} />
           )}
         </div>
@@ -131,15 +147,23 @@ export default function ChatView({
 
       <div id="composer">
         <div className="composer-inner">
-          <span className="composer-placeholder">
-            {state.company ? `Ask a follow-up about ${state.company}…` : "Ask a follow-up…"}
-          </span>
-          <button className="new-chat-btn" onClick={onNewChat}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
+          <input
+            className="composer-input"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            placeholder={state.company ? `Ask a follow-up about ${state.company}…` : "Ask a follow-up…"}
+          />
+          <button className="send-btn" onClick={send} disabled={!draft.trim()} aria-label="Send">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="19" x2="12" y2="5" />
+              <polyline points="6 11 12 5 18 11" />
             </svg>
-            New chat
           </button>
         </div>
       </div>

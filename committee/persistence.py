@@ -155,6 +155,21 @@ def save_chat_result(chat_id: str | None, analysis: dict, neighbors: list, new_p
     )
 
 
+def save_synthesis(chat_id: str | None, synthesis: dict | None) -> None:
+    """Persist the narrow-run direct answer. Its own write (separate from
+    save_chat_result) so a missing `synthesis` column never blocks marking the
+    chat done — the live answer still streams via the SSE complete event."""
+    if not chat_id or synthesis is None:
+        return
+    client = get_supabase_client()
+    if client is None:
+        return
+    try:
+        client.table("chats").update({"synthesis": synthesis}).eq("id", chat_id).execute()
+    except Exception:
+        logger.exception("save_synthesis failed for chat %s (has the synthesis column been added?)", chat_id)
+
+
 def save_network_neighbors(chat_id: str | None, company: str, neighbors: list) -> None:
     """Persist the top-N portfolio neighbours (with similarity score) as individual
     rows, one per neighbour, alongside the compact copy in chats.network_snapshot.
