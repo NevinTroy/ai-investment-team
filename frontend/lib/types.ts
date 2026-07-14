@@ -43,6 +43,23 @@ export interface Synthesis {
   key_points: string[];
 }
 
+// One company's row in a comparison table.
+export interface ComparisonRow {
+  company: string;
+  scores: Record<string, number>;
+  highlight: string;
+  concern: string;
+}
+
+// Structured side-by-side produced for "compare" runs (A vs B, or a sector).
+export interface Comparison {
+  headline: string;
+  winner: string;
+  rationale: string;
+  dimensions: string[];
+  rows: ComparisonRow[];
+}
+
 export interface Neighbor {
   id: number;
   name: string;
@@ -79,6 +96,7 @@ export interface ChatSummary {
   id: string;
   title: string | null;
   company: string | null;
+  sector: string | null;
   question: string;
   status: "running" | "done" | "rejected" | "error";
   created_at: string;
@@ -88,6 +106,7 @@ export interface ChatDetail extends ChatSummary {
   analysis: Record<string, Record<string, unknown>> | null;
   network_snapshot: { neighbors: Neighbor[]; new_pos: [number, number] | null } | null;
   synthesis: Synthesis | null;
+  comparison: Comparison | null;
   error_message: string | null;
   deck: Deck | null;
   messages: { role: "user" | "assistant"; content: string; created_at: string }[];
@@ -107,6 +126,7 @@ export interface Followup {
 export type AnalyzeEvent =
   | { type: "start"; company: string; question: string; chat_id: string | null; agents?: string[] }
   | { type: "agent_update"; agent: string; display_name: string; ticker: string; status: string; analysis: string | null }
-  | { type: "complete"; data: { analysis?: Record<string, MemoData> }; company: string; neighbors: Neighbor[]; new_pos: [number, number] | null; synthesis: Synthesis | null; chat_id: string | null }
+  | { type: "progress"; message: string }
+  | { type: "complete"; data: { analysis?: Record<string, MemoData> }; company: string; neighbors: Neighbor[]; new_pos: [number, number] | null; synthesis: Synthesis | null; comparison?: Comparison | null; chat_id: string | null }
   | { type: "rejected"; reason: string; chat_id: string | null }
   | { type: "error"; message: string };
