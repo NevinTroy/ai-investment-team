@@ -6,12 +6,12 @@ import Home from "@/components/Home";
 import ChatView from "@/components/ChatView";
 import DueBanners from "@/components/DueBanners";
 import {
-  completeFollowup,
   dismissFollowup,
   getChat,
   listChats,
   listDueFollowups,
   streamAnalysis,
+  streamRerun,
 } from "@/lib/api";
 import type {
   AgentRowState,
@@ -41,7 +41,6 @@ export interface AppState {
   statusText: string | null;
   rejectedReason: string | null;
   errorMessage: string | null;
-  pendingFollowupId: string | null;
 }
 
 const initialState: AppState = {
@@ -61,7 +60,6 @@ const initialState: AppState = {
   statusText: null,
   rejectedReason: null,
   errorMessage: null,
-  pendingFollowupId: null,
 };
 
 type Action =
@@ -69,7 +67,6 @@ type Action =
   | { type: "submit"; question: string }
   | { type: "sse"; ev: AnalyzeEvent }
   | { type: "toggleAgent"; id: string }
-  | { type: "setPendingFollowup"; id: string }
   | { type: "networkError" }
   | { type: "loadedChat"; state: Partial<AppState> };
 
@@ -79,19 +76,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...initialState };
 
     case "submit":
-      // pendingFollowupId survives so reruns can be marked done on start
-      return {
-        ...initialState,
-        phase: "checking",
-        query: action.question,
-        pendingFollowupId: state.pendingFollowupId,
-      };
+      return { ...initialState, phase: "checking", query: action.question };
 
     case "toggleAgent":
       return { ...state, expanded: state.expanded === action.id ? null : action.id };
-
-    case "setPendingFollowup":
-      return { ...state, pendingFollowupId: action.id };
 
     case "networkError":
       return { ...state, phase: "done", errorMessage: "Could not reach the server. Is it running?" };
@@ -110,7 +98,6 @@ function reducer(state: AppState, action: Action): AppState {
             chatId: ev.chat_id || state.chatId,
             selectedAgents: ev.agents || null,
             statusText: null,
-            pendingFollowupId: null, // side effect (completeFollowup) fired by the caller
           };
         case "progress":
           return { ...state, statusText: ev.message || null };
@@ -205,27 +192,20 @@ export default function Page() {
   }, []);
 
   const submit = useCallback(
-    (question: string, pendingFollowupId?: string) => {
+    (question: string) => {
       const q = question.trim();
       if (!q) return;
-      if (pendingFollowupId) dispatch({ type: "setPendingFollowup", id: pendingFollowupId });
       dispatch({ type: "submit", question: q });
-
-      let followupToComplete = pendingFollowupId || state.pendingFollowupId || null;
       streamAnalysis(
         q,
         (ev) => {
-          if (ev.type === "start" && followupToComplete) {
-            completeFollowup(followupToComplete, ev.chat_id || null);
-            followupToComplete = null;
-          }
           dispatch({ type: "sse", ev });
           if (ev.type === "complete" || ev.type === "rejected") refreshChats();
         },
         () => dispatch({ type: "networkError" }),
       );
     },
-    [state.pendingFollowupId, refreshChats],
+    [refreshChats],
   );
 
   const loadChat = useCallback(async (chatId: string) => {
@@ -279,12 +259,23 @@ export default function Page() {
     dispatch({ type: "loadedChat", state: loaded });
   }, []);
 
+  // A scheduled watchlist revisit is NOT a fresh analysis: re-research the
+  // company and diff it against the original run (no deck). The backend marks
+  // the follow-up done, so we just stream the report into the chat.
   const handleRerun = useCallback(
     (f: Followup) => {
       setDueFollowups((prev) => prev.filter((x) => x.id !== f.id));
-      submit(f.question, f.id);
+      dispatch({ type: "submit", question: f.question });
+      streamRerun(
+        f.id,
+        (ev) => {
+          dispatch({ type: "sse", ev });
+          if (ev.type === "complete" || ev.type === "rejected") refreshChats();
+        },
+        () => dispatch({ type: "networkError" }),
+      );
     },
-    [submit],
+    [refreshChats],
   );
 
   const handleDismiss = useCallback((f: Followup) => {

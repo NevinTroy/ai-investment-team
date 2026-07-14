@@ -41,6 +41,7 @@ from committee.persistence import (  # noqa: E402
     download_and_store_deck,
     get_analyses_for_comparison,
     get_chat,
+    get_followup,
     list_chats,
     list_due_followups,
     mark_chat_error,
@@ -453,6 +454,139 @@ async def _handle_comparison(orch: _OrchestratorResult, question: str, loop, met
     )
 
 
+async def _handle_revisit(followup_id: str, loop, metadata: dict) -> StreamingResponse:
+    """Scheduled watchlist re-run: RE-RESEARCH the company fresh, then DIFF the
+    new analyst output against the original chat's stored analysis via the
+    comparison agent — and stream the report straight into the chat.
+
+    Unlike a normal analysis this deliberately produces **no deck**: the full
+    committee runs (``run_memo=False``) purely to refresh the numbers, and the
+    comparison agent (``mode="revisit"``) turns the before/after into a
+    what-changed report. Live agent updates stream over the same SSE contract as
+    ``/api/analyze`` (agent cards + a final ``comparison`` payload the frontend
+    already renders). The follow-up is marked done server-side.
+    """
+    followup = await loop.run_in_executor(_executor, lambda: get_followup(followup_id))
+    if not followup:
+        async def _missing():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Follow-up not found.'})}\n\n"
+        return StreamingResponse(_missing(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    original_chat_id = followup.get("chat_id")
+    company = (followup.get("company") or "").strip()
+    question = (followup.get("question") or "").strip()
+
+    # Pull the original analysis we'll diff the fresh run against.
+    original = await loop.run_in_executor(
+        _executor, lambda: get_chat(original_chat_id)
+    ) if original_chat_id else None
+    original_analysis = (original or {}).get("analysis") or {}
+    sector = (original or {}).get("sector") or ""
+    prev_date = ((original or {}).get("created_at") or "")[:10]
+
+    # A revisit always re-runs the full committee (to refresh every dimension),
+    # but never the memo agent — the output is a diff report, not a deck.
+    selected_agents = list(COMMITTEE_AGENTS)
+    selected_nodes = [COMMITTEE_AGENTS[k][0] for k in selected_agents]
+
+    chat_id = await loop.run_in_executor(_executor, lambda: create_chat(question, company, sector))
+    await loop.run_in_executor(_executor, lambda: save_user_message(chat_id, question))
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def handler(agent_name, ticker, status, analysis, timestamp):
+        event = json.dumps({
+            "type": "agent_update",
+            "agent": agent_name,
+            "display_name": AGENT_DISPLAY.get(agent_name, agent_name),
+            "ticker": ticker or "",
+            "status": status,
+            "analysis": analysis,
+        })
+        loop.call_soon_threadsafe(queue.put_nowait, event)
+        if analysis:
+            save_agent_output(chat_id, agent_name, ticker, analysis)
+
+    progress.register_handler(handler)
+
+    async def _task():
+        try:
+            data = await loop.run_in_executor(
+                _executor,
+                lambda: _run_analysis(question, company, selected_agents, run_memo=False),
+            )
+            fresh_analysis = data.get("analysis", {})
+
+            await queue.put(json.dumps({
+                "type": "progress",
+                "message": "Comparing against your previous analysis…",
+            }))
+
+            prev_row = {"company": "Previous", "sector": sector, "analysis": original_analysis}
+            curr_row = {"company": "Current", "sector": sector, "analysis": fresh_analysis}
+            comp_question = (
+                f"Revisit of {company or 'this company'}: has the investment thesis "
+                f"changed since the previous analysis"
+                + (f" on {prev_date}" if prev_date else "")
+                + "?"
+            )
+            comparison = await loop.run_in_executor(
+                _executor,
+                lambda: run_comparison_agent([prev_row, curr_row], comp_question, metadata, mode="revisit"),
+            )
+
+            try:
+                await loop.run_in_executor(
+                    _executor, lambda: save_chat_result(chat_id, fresh_analysis, [], None)
+                )
+                await loop.run_in_executor(_executor, lambda: save_comparison(chat_id, comparison))
+                assistant_summary = comparison.get("headline") or "Revisit complete."
+                await loop.run_in_executor(
+                    _executor, lambda: save_assistant_message(chat_id, assistant_summary)
+                )
+                # Mark the follow-up done and link this re-run chat to it.
+                await loop.run_in_executor(
+                    _executor, lambda: complete_followup(followup_id, chat_id)
+                )
+            except Exception:
+                logger.exception("Persistence step failed for revisit chat %s", chat_id)
+
+            await queue.put(json.dumps({
+                "type": "complete",
+                "data": data,
+                "company": company,
+                "neighbors": [],
+                "new_pos": None,
+                "synthesis": None,
+                "comparison": comparison,
+                "chat_id": chat_id,
+            }))
+        except Exception as exc:
+            logger.exception("Revisit re-run failed")
+            await loop.run_in_executor(_executor, lambda: mark_chat_error(chat_id, str(exc)))
+            await queue.put(json.dumps({"type": "error", "message": str(exc)}))
+        finally:
+            progress.unregister_handler(handler)
+            await queue.put(None)
+
+    asyncio.create_task(_task())
+
+    async def stream():
+        yield f"data: {json.dumps({'type': 'start', 'company': company, 'question': question, 'chat_id': chat_id, 'agents': selected_nodes})}\n\n"
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield f"data: {item}\n\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/api/analyze")
 async def analyze(req: AnalyzeRequest):
     loop = asyncio.get_event_loop()
@@ -729,6 +863,15 @@ async def due_followups():
     loop = asyncio.get_event_loop()
     rows = await loop.run_in_executor(_executor, list_due_followups)
     return {"followups": rows}
+
+
+@app.post("/api/followups/{followup_id}/rerun")
+async def rerun_followup_endpoint(followup_id: str):
+    """Run a scheduled watchlist revisit: re-research the company and stream a
+    diff against its original analysis (no deck). Marks the follow-up done."""
+    loop = asyncio.get_event_loop()
+    metadata = _base_metadata(False)
+    return await _handle_revisit(followup_id, loop, metadata)
 
 
 @app.post("/api/followups/{followup_id}/complete")

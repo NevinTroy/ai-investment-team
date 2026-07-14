@@ -85,6 +85,50 @@ def _company_block(row: dict) -> str:
     return "\n".join(parts)
 
 
+def _build_revisit_prompt(question: str, rows: list[dict]) -> str:
+    """Prompt for a watchlist REVISIT: the same company at two points in time.
+
+    ``rows`` is exactly ``[previous_snapshot, current_snapshot]`` — both the same
+    company, its stored analysis vs. a fresh re-run. Instead of picking a winner
+    between rivals, the model explains what CHANGED and what it means for the
+    watchlist decision. Output schema is identical to the head-to-head so the
+    same table renders it.
+    """
+    blocks = "\n\n".join(_company_block(r) for r in rows)
+    names = " -> ".join(r.get("company") or "Unknown" for r in rows)
+    return (
+        "You are an investment analyst REVISITING a company on the committee's "
+        "watchlist. The committee analyzed it before and has now RE-RESEARCHED it "
+        "from scratch. Below are two snapshots of the SAME company: its PREVIOUS "
+        "stored analysis and the CURRENT fresh analysis (scores on a 0-10 scale "
+        "plus reasoning).\n\n"
+        f'Watchlist question: "{question}"\n'
+        f"Snapshots ({names}).\n\n"
+        "=== SNAPSHOTS ===\n"
+        f"{blocks}\n"
+        "=== END SNAPSHOTS ===\n\n"
+        "Produce a WHAT-CHANGED report using ONLY these findings. Reuse the given "
+        "scores — do NOT invent numbers; for each dimension the two snapshots share, "
+        "keep the score so the table shows previous vs. current side by side (omit a "
+        "dimension only if it is missing from one snapshot). In the rationale, explain "
+        "what improved, what deteriorated, and whether the investment thesis is "
+        "STRONGER or WEAKER than before — and therefore whether the company should now "
+        "come OFF the watchlist, stay ON it, or move toward a pass.\n\n"
+        "Use exactly \"Previous\" and \"Current\" as the two row labels (the `company` "
+        "field). Set `winner` to \"Current\" if the thesis improved, \"Previous\" if it "
+        "weakened, or empty string if roughly unchanged.\n\n"
+        "Respond in JSON with EXACTLY these keys:\n"
+        '{"headline": "<one-line verdict on how the thesis has changed>", '
+        '"winner": "Current" | "Previous" | "", '
+        '"rationale": "<3-5 sentences on what changed and the watchlist implication>", '
+        '"dimensions": ["Market", "Founders", "Product", "Risk"], '
+        '"rows": [{"company": "Previous", "scores": {"Market": 7.2}, '
+        '"highlight": "<biggest prior strength>", "concern": "<biggest prior risk>"}, '
+        '{"company": "Current", "scores": {"Market": 8.1}, '
+        '"highlight": "<biggest improvement/strength now>", "concern": "<biggest remaining/new risk>"}]}'
+    )
+
+
 def _build_prompt(question: str, rows: list[dict]) -> str:
     blocks = "\n\n".join(_company_block(r) for r in rows)
     names = ", ".join(r.get("company") or "Unknown" for r in rows)
@@ -113,15 +157,32 @@ def _build_prompt(question: str, rows: list[dict]) -> str:
     )
 
 
-def run_comparison_agent(rows: list[dict], question: str, metadata: dict | None = None) -> dict:
+def run_comparison_agent(
+    rows: list[dict], question: str, metadata: dict | None = None, mode: str = "compare"
+) -> dict:
     """Compare the given stored analyses and return a ``ComparisonResult`` dict.
 
-    ``rows`` is the output of ``persistence.get_analyses_for_comparison`` — one
-    entry per company with its ``analysis`` payload. With fewer than two usable
-    companies there is nothing to compare, so an empty result is returned.
+    ``mode="compare"`` (default): head-to-head or sector comparison of distinct
+    companies. ``rows`` is the output of ``persistence.get_analyses_for_comparison``
+    — one entry per company with its ``analysis`` payload.
+
+    ``mode="revisit"``: a watchlist re-run diff. ``rows`` is exactly
+    ``[previous_snapshot, current_snapshot]`` of the SAME company (stored analysis
+    vs. a fresh re-run); the result is a before/after "what changed" report.
+
+    With fewer than two usable snapshots there is nothing to compare, so an empty
+    result is returned.
     """
     usable = [r for r in rows if isinstance(r.get("analysis"), dict) and r["analysis"]]
     if len(usable) < 2:
+        if mode == "revisit":
+            return ComparisonResult(
+                headline="No previous analysis to compare against.",
+                winner="",
+                rationale="The original analysis for this company could not be loaded, so the fresh re-run above stands on its own with nothing to diff it against.",
+                dimensions=[],
+                rows=[],
+            ).model_dump()
         return ComparisonResult(
             headline="Not enough analyzed companies to compare.",
             winner="",
@@ -130,7 +191,7 @@ def run_comparison_agent(rows: list[dict], question: str, metadata: dict | None 
             rows=[],
         ).model_dump()
 
-    prompt = _build_prompt(question, usable)
+    prompt = _build_revisit_prompt(question, usable) if mode == "revisit" else _build_prompt(question, usable)
     state = {"data": {}, "metadata": metadata or {}}
 
     def _default() -> ComparisonResult:

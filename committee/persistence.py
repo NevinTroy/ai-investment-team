@@ -234,6 +234,47 @@ def save_comparison(chat_id: str | None, comparison: dict | None) -> None:
         logger.exception("save_comparison failed for chat %s (has the comparison column been added?)", chat_id)
 
 
+def upsert_portfolio_companies(companies: list[dict]) -> int:
+    """Seed/refresh the portfolio_companies table from the JSON corpus.
+
+    ``companies`` is the ``summit_portfolio_companies.json`` list; each row's id
+    is its INDEX in that list — the same integer network.py uses as a
+    neighbour's id — so network_neighbors.neighbor_id lines up as a foreign key.
+    Upserts on ``id`` so re-running is idempotent. Returns the number of rows
+    written (0 if Supabase is unconfigured or the write fails). Fail-soft.
+    """
+    client = get_supabase_client()
+    if client is None:
+        return 0
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    rows = [
+        {
+            "id": i,
+            "name": c.get("name") or "",
+            "location": c.get("location") or "",
+            "sector": c.get("sector") or "",
+            "summary": c.get("summary") or "",
+            "site": c.get("site") or "",
+            "updated_at": now,
+        }
+        for i, c in enumerate(companies)
+    ]
+    if not rows:
+        return 0
+    try:
+        # Batch to stay well under any request-size limits on large corpora.
+        written = 0
+        for start in range(0, len(rows), 200):
+            batch = rows[start:start + 200]
+            client.table("portfolio_companies").upsert(batch, on_conflict="id").execute()
+            written += len(batch)
+        return written
+    except Exception:
+        logger.exception("upsert_portfolio_companies failed")
+        return 0
+
+
 def save_network_neighbors(chat_id: str | None, company: str, neighbors: list) -> None:
     """Persist the top-N portfolio neighbours (with similarity score) as individual
     rows, one per neighbour, alongside the compact copy in chats.network_snapshot.
@@ -411,6 +452,21 @@ def create_followup(chat_id: str | None, company: str, question: str, due_date: 
         return res.data[0] if res.data else None
     except Exception:
         logger.exception("create_followup failed for chat %s", chat_id)
+        return None
+
+
+def get_followup(followup_id: str | None) -> dict | None:
+    """Fetch a single followup row by id, or None if missing/unconfigured."""
+    if not followup_id:
+        return None
+    client = get_supabase_client()
+    if client is None:
+        return None
+    try:
+        res = client.table("followups").select("*").eq("id", followup_id).limit(1).execute()
+        return res.data[0] if res.data else None
+    except Exception:
+        logger.exception("get_followup failed for %s", followup_id)
         return None
 
 
