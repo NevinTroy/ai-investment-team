@@ -4,7 +4,7 @@
     {
       "name": "archer-api",
       "runtimeExecutable": "poetry",
-      "runtimeArgs": ["run", "uvicorn", "committee.api:app", "--port", "8000"],
+      "runtimeArgs": ["run", "uvicorn", "committee.api:app", "--reload", "--port", "8000"],
       "port": 8000
     },
     {

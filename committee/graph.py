@@ -13,6 +13,7 @@ from committee.agents.competitive_intelligence import competitive_intelligence_a
 from committee.agents.founder_analyzer import founder_analyzer_agent
 from committee.agents.market_analyzer import market_analyzer_agent
 from committee.agents.product_analyst import product_analyst_agent
+from committee.agents.risk_analyst import risk_analyst_agent
 
 # Registry of committee analyst agents: key -> (node_name, agent_func).
 # Add future agents here and they will automatically join the workflow.
@@ -21,6 +22,7 @@ COMMITTEE_AGENTS = {
     "founder_analyzer": ("founder_analyzer_agent", founder_analyzer_agent),
     "product_analyst": ("product_analyst_agent", product_analyst_agent),
     "competitive_intelligence": ("competitive_intelligence_agent", competitive_intelligence_agent),
+    "risk_analyst": ("risk_analyst_agent", risk_analyst_agent),
 }
 
 

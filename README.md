@@ -16,6 +16,7 @@ A dark-themed **Next.js** web UI streams live agent status as work progresses. E
 6. **Added calendar option (watchlist follow-ups)** — watchlist decisions offer a scheduled rerun: pick a date, get a prefilled Google Calendar reminder link, and on the due date the app prompts to rerun (only with user approval); the rerun becomes a new chat linked to the original (`followups`).
 7. **Migrated the frontend to Next.js** — the single-file vanilla JS UI was rebuilt as a Next.js 15 + React 19 + TypeScript app with componentized views, keeping the original design pixel-faithful.
 8. **UI polish** — `app_icon.png` is now the logo/avatar/favicon, and the home-screen placeholder rotates through example companies with a rise animation.
+9. **Added Risk Analyst agent** — a dedicated committee node covering regulatory exposure, key-person risk, market timing risk, and red flags (lawsuits, layoffs, negative press); its `risk_score` and `red_flags` feed the memo's risks slide and final recommendation.
 
 ---
 
@@ -40,6 +41,7 @@ flowchart TB
         FA[Founder Analyzer]
         PA[Product Analyst]
         CI[Competitive Intelligence]
+        RA[Risk Analyst]
         END_NODE([END])
     end
 
@@ -57,14 +59,14 @@ flowchart TB
     Q --> O
     O -->|allowed| START
     O -->|not allowed| REJ
-    START --> MA & FA & PA & CI
-    MA & FA & PA & CI --> END_NODE
+    START --> MA & FA & PA & CI & RA
+    MA & FA & PA & CI & RA --> END_NODE
     END_NODE --> IM
     IM --> PRESENTON
     END_NODE --> NET
 
     O -.-> DB
-    MA & FA & PA & CI -.->|as each finishes| DB
+    MA & FA & PA & CI & RA -.->|as each finishes| DB
     IM -.-> DB
     NET -.-> DB
     PRESENTON -.->|PDF downloaded & stored| STORE
@@ -75,16 +77,18 @@ flowchart TB
 ```
                     ┌──► market_analyzer_agent ──────────► END
                     │
-start_node ─────────┼──► founder_analyzer_agent ─────────► END
- (only the          │
-  selected          ├──► product_analyst_agent ──────────► END
-  agents are        │
-  wired in)         └──► competitive_intelligence_agent ─► END
+                    ├──► founder_analyzer_agent ─────────► END
+start_node ─────────┤
+ (only the          ├──► product_analyst_agent ──────────► END
+  selected          │
+  agents are        ├──► competitive_intelligence_agent ─► END
+  wired in)         │
+                    └──► risk_analyst_agent ─────────────► END
 
 (investment_memo_agent always runs after committee.invoke() in main.py / api.py)
 ```
 
-A broad question ("Should we invest in X?") runs all four analysts; a narrow one ("How strong are the founders of X?") runs only the relevant agent — the UI shows exactly the rows that were deployed.
+A broad question ("Should we invest in X?") runs all five analysts; a narrow one ("How strong are the founders of X?") runs only the relevant agent — the UI shows exactly the rows that were deployed.
 
 ### Agents
 
@@ -95,6 +99,7 @@ A broad question ("Should we invest in X?") runs all four analysts; a narrow one
 | **Founder Analyzer**         | `committee/agents/founder_analyzer.py`         | Identifies founders via web search, deep-dives on backgrounds, previous companies, domain expertise, execution history, and social-media activity. Downloads headshots for the memo deck.                                                                    |
 | **Product Analyst**          | `committee/agents/product_analyst.py`          | Resolves the product name via web search, then researches product quality, differentiation, defensibility, technical moat, and roadmap. Produces a `product_score` (0–10).                                                                                   |
 | **Competitive Intelligence** | `committee/agents/competitive_intelligence.py` | Finds the top three direct competitors, deep-dives on their funding and revenue, and synthesizes a comparison table and competitive moat assessment.                                                                                                         |
+| **Risk Analyst**             | `committee/agents/risk_analyst.py`             | Classifies the company's industry/regulatory domain, then researches its risk surface across six dimensions: regulatory exposure, key-person risk, market timing risk, lawsuits, layoffs, and negative press. Produces a `risk_score` (0–10, higher is safer) plus an explicit `red_flags` list. |
 | **Investment Memo**          | `committee/agents/investment_memo.py`          | Consolidates all analyst outputs, drafts an 8-slide memo (title + 6 body + recommendation), and generates a PDF presentation via the Presenton API. Issues a `invest / pass / watchlist` decision.                                                           |
 
 ### How each agent works
@@ -165,6 +170,7 @@ committee/
     founder_analyzer.py         # Founding team evaluation
     product_analyst.py          # Product quality and moat
     competitive_intelligence.py # Competitor landscape
+    risk_analyst.py             # Regulatory, key-person, timing risk + red flags
     investment_memo.py          # Final memo + PDF generation
   tools/
     tavily_mcp.py               # Tavily search wrapper

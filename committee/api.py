@@ -46,6 +46,7 @@ from committee.persistence import (  # noqa: E402
     save_assistant_message,
     save_chat_result,
     save_network_neighbors,
+    save_synthesis,
     save_user_message,
 )
 from src.utils.progress import progress  # noqa: E402
@@ -102,10 +103,13 @@ def _orchestrate(question: str, metadata: dict) -> _OrchestratorResult:
         "- market_analyzer: sizes and scores the market opportunity (TAM, growth, timing)\n"
         "- founder_analyzer: researches and evaluates the founding team\n"
         "- product_analyst: evaluates product strength, differentiation, and defensibility\n"
-        "- competitive_intelligence: identifies top competitors and builds a comparison\n\n"
-        "For a general investment question (\"Should we invest in X?\"), select ALL FOUR agents. "
+        "- competitive_intelligence: identifies top competitors and builds a comparison\n"
+        "- risk_analyst: assesses regulatory exposure, key-person risk, market timing risk, "
+        "and red flags (lawsuits, layoffs, negative press)\n\n"
+        "For a general investment question (\"Should we invest in X?\"), select ALL FIVE agents. "
         "For a narrower question, select only the agents needed to answer it "
-        "(e.g. a question about founders needs only founder_analyzer).\n\n"
+        "(e.g. a question about founders needs only founder_analyzer; a question about "
+        "lawsuits or red flags needs only risk_analyst).\n\n"
         f'User question: "{question}"\n\n'
         'Respond in JSON: {"allowed": true/false, "reason": "...", "company": "...", "agents": ["..."]}'
     )
@@ -116,11 +120,56 @@ def _orchestrate(question: str, metadata: dict) -> _OrchestratorResult:
                         company="", agents=list(COMMITTEE_AGENTS)))
 
 
+class _SynthesisResult(BaseModel):
+    headline: str = PydanticField(description="A one-line direct answer to the user's question.")
+    answer: str = PydanticField(description="A concise 2-4 sentence answer grounded in the analyst findings.")
+    key_points: list[str] = PydanticField(default_factory=list, description="3-5 supporting bullet points with the most relevant facts/metrics from the analysis.")
+
+
+def _synthesize(question: str, company: str, analysis: dict, metadata: dict) -> _SynthesisResult:
+    """Answer a narrow question directly from the analyst output(s).
+
+    Used when the run is NOT a full committee evaluation (no investment memo):
+    the routed analyst produced its findings, and this turns them into a
+    focused answer to the user's actual question."""
+    blocks = "\n\n".join(
+        f"## {key.replace('_', ' ').title()}\n{json.dumps(block, indent=2)}"
+        for key, block in analysis.items()
+    ) or "(no analyst output available)"
+    prompt = (
+        "You are an investment analyst answering a specific question about a company. "
+        "Using ONLY the analyst findings below, answer the user's question directly and "
+        "concisely. Do not invent facts; if the findings don't cover something, say so.\n\n"
+        f'Question: "{question}"\n'
+        f"Company: {company}\n\n"
+        "=== ANALYST FINDINGS ===\n"
+        f"{blocks}\n"
+        "=== END FINDINGS ===\n\n"
+        "Respond in JSON with EXACTLY these keys:\n"
+        '{"headline": "<one-line direct answer>", '
+        '"answer": "<2-4 sentence answer grounded in the findings>", '
+        '"key_points": ["<supporting fact/metric>", "..."]}'
+    )
+    state = {"data": {}, "metadata": metadata}
+    return call_llm(
+        prompt=prompt,
+        pydantic_model=_SynthesisResult,
+        agent_name="synthesizer",
+        state=state,
+        default_factory=lambda: _SynthesisResult(
+            headline="Analysis complete.",
+            answer="The routed analyst produced findings above, but a summary answer could not be generated.",
+            key_points=[],
+        ),
+    )
+
+
 AGENT_DISPLAY = {
     "market_analyzer_agent": "Market Analyzer",
     "founder_analyzer_agent": "Founder Analyzer",
     "product_analyst_agent": "Product Analyst",
     "competitive_intelligence_agent": "Competitive Intelligence",
+    "risk_analyst_agent": "Risk Analyst",
     "investment_memo_agent": "Investment Memo",
 }
 
@@ -132,8 +181,18 @@ class AnalyzeRequest(BaseModel):
     question: str
 
 
-def _run_analysis(question: str, company: str, selected_agents: list[str] | None = None) -> dict:
-    """Blocking analysis — runs in a thread pool executor."""
+def _run_analysis(
+    question: str,
+    company: str,
+    selected_agents: list[str] | None = None,
+    run_memo: bool = True,
+) -> dict:
+    """Blocking analysis — runs in a thread pool executor.
+
+    ``run_memo`` gates the Investment Memo agent: it only runs for a full
+    committee evaluation ("Should we invest in X?"), not for narrow questions
+    that route a single analyst.
+    """
     committee = build_committee(selected_agents)
     metadata = _base_metadata(False)
 
@@ -156,13 +215,14 @@ def _run_analysis(question: str, company: str, selected_agents: list[str] | None
             }
         )
 
-        memo_state = {
-            "messages": final_state.get("messages", []),
-            "data": final_state["data"],
-            "metadata": metadata,
-        }
-        memo_out = investment_memo_agent(memo_state)
-        final_state["data"] = memo_out["data"]
+        if run_memo:
+            memo_state = {
+                "messages": final_state.get("messages", []),
+                "data": final_state["data"],
+                "metadata": metadata,
+            }
+            memo_out = investment_memo_agent(memo_state)
+            final_state["data"] = memo_out["data"]
     finally:
         progress.start = _orig_start
         progress.stop = _orig_stop
@@ -193,6 +253,12 @@ async def analyze(req: AnalyzeRequest):
     # Validate the routing decision; an empty or invalid selection means the
     # orchestrator couldn't decide — run the full committee.
     selected_agents = [a for a in (orch.agents or []) if a in COMMITTEE_AGENTS] or list(COMMITTEE_AGENTS)
+
+    # A "full run" is when the orchestrator fired every sub-agent — i.e. a
+    # complete "Should we invest in X?" evaluation. Only then do we run the
+    # Investment Memo agent and compute the portfolio network graph; narrow
+    # questions (a single analyst) return just that analyst's findings.
+    full_run = set(selected_agents) == set(COMMITTEE_AGENTS)
 
     queue: asyncio.Queue = asyncio.Queue()
 
@@ -239,25 +305,39 @@ async def analyze(req: AnalyzeRequest):
         try:
             data = await loop.run_in_executor(
                 _executor,
-                lambda: _run_analysis(question, company, selected_agents),
+                lambda: _run_analysis(question, company, selected_agents, full_run),
             )
-            # Compute portfolio neighbors using market+product analysis for the embedding
             ana = data.get("analysis", {})
             market = ana.get("market_analyzer", {})
             memo = ana.get("investment_memo", {})
-            sector = market.get("sector") or market.get("market") or company
-            summary = (
-                memo.get("reasoning")
-                or market.get("reasoning")
-                or data.get("question", "")
-            )
-            try:
-                neighbors, new_pos = await loop.run_in_executor(
-                    _executor,
-                    lambda: find_neighbors(sector, summary, top_k=10),
+
+            # Portfolio network graph only for a full investment evaluation.
+            neighbors: list = []
+            new_pos = None
+            if full_run:
+                sector = market.get("sector") or market.get("market") or company
+                summary = (
+                    memo.get("reasoning")
+                    or market.get("reasoning")
+                    or data.get("question", "")
                 )
-            except Exception:
-                neighbors, new_pos = [], (0.5, 0.5)
+                try:
+                    neighbors, new_pos = await loop.run_in_executor(
+                        _executor,
+                        lambda: find_neighbors(sector, summary, top_k=10),
+                    )
+                except Exception:
+                    neighbors, new_pos = [], (0.5, 0.5)
+
+            # Narrow runs have no memo — synthesize a direct answer to the
+            # question from the routed analyst's findings.
+            synthesis = None
+            if not full_run:
+                synth = await loop.run_in_executor(
+                    _executor,
+                    lambda: _synthesize(question, company, ana, metadata),
+                )
+                synthesis = synth.model_dump()
 
             # Persist the run. Kept out of the live SSE latency path where possible
             # (deck download/upload happens here but never blocks/breaks the
@@ -271,6 +351,10 @@ async def analyze(req: AnalyzeRequest):
                 )
                 await loop.run_in_executor(
                     _executor,
+                    lambda: save_synthesis(chat_id, synthesis),
+                )
+                await loop.run_in_executor(
+                    _executor,
                     lambda: save_network_neighbors(chat_id, company, neighbors),
                 )
                 if memo.get("presentation_url"):
@@ -280,11 +364,14 @@ async def analyze(req: AnalyzeRequest):
                             chat_id, memo["presentation_url"], memo.get("edit_path", ""), company
                         ),
                     )
+                assistant_summary = (
+                    memo.get("recommendation_headline")
+                    or (synthesis or {}).get("headline")
+                    or "Analysis complete"
+                )
                 await loop.run_in_executor(
                     _executor,
-                    lambda: save_assistant_message(
-                        chat_id, memo.get("recommendation_headline") or "Analysis complete"
-                    ),
+                    lambda: save_assistant_message(chat_id, assistant_summary),
                 )
             except Exception:
                 logger.exception("Persistence step failed for chat %s", chat_id)
@@ -295,6 +382,7 @@ async def analyze(req: AnalyzeRequest):
                 "company": company,
                 "neighbors": neighbors,
                 "new_pos": new_pos,
+                "synthesis": synthesis,
                 "chat_id": chat_id,
             }))
         except Exception as exc:
@@ -307,8 +395,11 @@ async def analyze(req: AnalyzeRequest):
 
     asyncio.create_task(_task())
 
-    # Node names for the UI: selected analysts + the memo agent (always runs)
-    selected_nodes = [COMMITTEE_AGENTS[k][0] for k in selected_agents] + ["investment_memo_agent"]
+    # Node names for the UI: selected analysts, plus the memo agent only on a
+    # full run (it doesn't execute for narrow, single-analyst questions).
+    selected_nodes = [COMMITTEE_AGENTS[k][0] for k in selected_agents]
+    if full_run:
+        selected_nodes.append("investment_memo_agent")
 
     async def stream():
         # send company name immediately so the UI can show it

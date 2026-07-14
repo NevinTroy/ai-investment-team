@@ -30,6 +30,7 @@ _ANALYST_KEYS = (
     "founder_analyzer",
     "product_analyst",
     "competitive_intelligence",
+    "risk_analyst",
 )
 
 
@@ -273,7 +274,9 @@ Requirements:
    - Product & technology
    - Competitive landscape
    - Founding team
-   - Key risks / business model (combine if needed)
+   - Key risks / business model (combine if needed; ground risks in the Risk Analyst
+     output — regulatory exposure, key-person risk, market timing, and red flags —
+     when that analysis is present)
 3. Keep each slide concise: 3-5 bullet points, max ~120 words per slide.
    Do NOT invent facts not supported by the analyst outputs. Use "Unknown" or "Not disclosed" when missing.
 4. Presenton-safe formatting (critical — prevents broken slide typography):
@@ -290,7 +293,7 @@ Requirements:
        * "Invest with $XM" (X = amount in millions)
        * "Pass"
        * "Watchlist"
-   - rationale: 2-4 sentences weighing market, product, team, and competitive scores
+   - rationale: 2-4 sentences weighing market, product, team, competitive, and risk scores
 
 === COMMITTEE ANALYST OUTPUTS ===
 {consolidated}

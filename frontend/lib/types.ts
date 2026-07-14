@@ -6,6 +6,7 @@ export const AGENT_ORDER = [
   "investment_memo_agent",
   "market_analyzer_agent",
   "product_analyst_agent",
+  "risk_analyst_agent",
 ] as const;
 
 export type AgentId = (typeof AGENT_ORDER)[number];
@@ -16,6 +17,7 @@ export const AGENT_DISPLAY: Record<AgentId, string> = {
   investment_memo_agent: "Investment Memo",
   market_analyzer_agent: "Market Analyzer",
   product_analyst_agent: "Product Analyst",
+  risk_analyst_agent: "Risk Analyst",
 };
 
 export type AgentStatus = "pending" | "running" | "done";
@@ -32,6 +34,13 @@ export interface MemoData {
   presentation_url?: string;
   edit_path?: string;
   [key: string]: unknown;
+}
+
+// Direct answer produced for narrow (single-analyst) runs that have no memo.
+export interface Synthesis {
+  headline: string;
+  answer: string;
+  key_points: string[];
 }
 
 export interface Neighbor {
@@ -78,6 +87,7 @@ export interface ChatSummary {
 export interface ChatDetail extends ChatSummary {
   analysis: Record<string, Record<string, unknown>> | null;
   network_snapshot: { neighbors: Neighbor[]; new_pos: [number, number] | null } | null;
+  synthesis: Synthesis | null;
   error_message: string | null;
   deck: Deck | null;
   messages: { role: "user" | "assistant"; content: string; created_at: string }[];
@@ -97,6 +107,6 @@ export interface Followup {
 export type AnalyzeEvent =
   | { type: "start"; company: string; question: string; chat_id: string | null; agents?: string[] }
   | { type: "agent_update"; agent: string; display_name: string; ticker: string; status: string; analysis: string | null }
-  | { type: "complete"; data: { analysis?: Record<string, MemoData> }; company: string; neighbors: Neighbor[]; new_pos: [number, number] | null; chat_id: string | null }
+  | { type: "complete"; data: { analysis?: Record<string, MemoData> }; company: string; neighbors: Neighbor[]; new_pos: [number, number] | null; synthesis: Synthesis | null; chat_id: string | null }
   | { type: "rejected"; reason: string; chat_id: string | null }
   | { type: "error"; message: string };
