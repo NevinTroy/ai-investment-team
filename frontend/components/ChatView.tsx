@@ -7,6 +7,7 @@ import PdfSection from "./PdfSection";
 import FollowupCard from "./FollowupCard";
 import NetworkPanel from "./NetworkPanel";
 import SynthesisCard from "./SynthesisCard";
+import ComparisonCard from "./ComparisonCard";
 import type { AppState } from "@/app/page";
 
 export default function ChatView({
@@ -33,10 +34,31 @@ export default function ChatView({
     if (el) el.scrollTop = el.scrollHeight;
   }, [state.phase, state.agents, state.memoData, state.neighbors]);
 
+  // compare/retrieve runs stream `agents: []` in their `start` event, so an
+  // empty selectedAgents array marks a non-committee run — no agent cards, just
+  // a single answer/comparison after one backend call.
+  const isNonCommitteeRun =
+    Array.isArray(state.selectedAgents) && state.selectedAgents.length === 0;
+
   const showAgents =
     (state.phase === "running" || state.phase === "done") &&
     !state.rejectedReason &&
+    !isNonCommitteeRun &&
     Object.keys(state.agents).length + (state.phase === "running" ? 1 : 0) > 0;
+
+  // Show a live "working" indicator while a request is in flight and there is no
+  // agent committee to display — i.e. the pre-routing check, or the whole
+  // running phase of a compare/retrieve run (which has no per-agent updates).
+  const showThinking =
+    !state.rejectedReason &&
+    !state.errorMessage &&
+    (state.phase === "checking" || (state.phase === "running" && !showAgents));
+
+  // Prefer a live progress message streamed from the backend (compare/retrieve
+  // emit these); fall back to a phase-based label.
+  const thinkingLabel =
+    state.statusText ||
+    (state.phase === "checking" ? "Reviewing your question…" : "Working through the committee's data…");
 
   const deployText = state.company ? (
     <>
@@ -60,7 +82,7 @@ export default function ChatView({
             <div className="user-bubble">{state.query}</div>
           </div>
 
-          {state.phase === "checking" && (
+          {showThinking && (
             <div className="asst-row">
               <Avatar />
               <div className="asst-body">
@@ -79,7 +101,7 @@ export default function ChatView({
                       />
                     ))}
                   </span>
-                  Reviewing your question…
+                  {thinkingLabel}
                 </div>
               </div>
             </div>
@@ -131,6 +153,11 @@ export default function ChatView({
           {/* Direct answer for narrow runs (no memo). */}
           {state.phase === "done" && state.synthesis && !state.rejectedReason && !state.errorMessage && (
             <SynthesisCard synthesis={state.synthesis} />
+          )}
+
+          {/* Side-by-side table for comparison runs. */}
+          {state.phase === "done" && state.comparison && !state.rejectedReason && !state.errorMessage && (
+            <ComparisonCard comparison={state.comparison} />
           )}
 
           {showWatchlistCard && (

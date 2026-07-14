@@ -15,6 +15,7 @@ create table if not exists chats (
   analysis jsonb,
   network_snapshot jsonb,
   synthesis jsonb,
+  comparison jsonb,
   error_message text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -23,6 +24,7 @@ create index if not exists chats_created_at_idx on chats (created_at desc);
 -- If the chats table already exists, add the newer columns:
 --   alter table chats add column if not exists synthesis jsonb;
 --   alter table chats add column if not exists sector text;
+--   alter table chats add column if not exists comparison jsonb;
 
 create table if not exists messages (
   id uuid primary key default gen_random_uuid(),

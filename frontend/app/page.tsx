@@ -17,6 +17,7 @@ import type {
   AgentRowState,
   AnalyzeEvent,
   ChatSummary,
+  Comparison,
   Followup,
   MemoData,
   Neighbor,
@@ -32,10 +33,12 @@ export interface AppState {
   expanded: string | null;
   memoData: MemoData | null;
   synthesis: Synthesis | null;
+  comparison: Comparison | null;
   neighbors: Neighbor[];
   newPos: [number, number] | null;
   selectedAgents: string[] | null; // node names picked by the orchestrator; null → show all
   fromHistory: boolean;
+  statusText: string | null;
   rejectedReason: string | null;
   errorMessage: string | null;
   pendingFollowupId: string | null;
@@ -50,10 +53,12 @@ const initialState: AppState = {
   expanded: null,
   memoData: null,
   synthesis: null,
+  comparison: null,
   neighbors: [],
   newPos: null,
   selectedAgents: null,
   fromHistory: false,
+  statusText: null,
   rejectedReason: null,
   errorMessage: null,
   pendingFollowupId: null,
@@ -104,8 +109,11 @@ function reducer(state: AppState, action: Action): AppState {
             company: ev.company || state.company,
             chatId: ev.chat_id || state.chatId,
             selectedAgents: ev.agents || null,
+            statusText: null,
             pendingFollowupId: null, // side effect (completeFollowup) fired by the caller
           };
+        case "progress":
+          return { ...state, statusText: ev.message || null };
         case "agent_update": {
           const prev = state.agents[ev.agent] || { status: "pending", ticker: "", report: "" };
           const isDone = (ev.status || "").toLowerCase() === "done";
@@ -135,8 +143,10 @@ function reducer(state: AppState, action: Action): AppState {
           return {
             ...state,
             phase: "done",
+            statusText: null,
             memoData: (ana.investment_memo as MemoData) || null,
             synthesis: ev.synthesis || null,
+            comparison: ev.comparison || null,
             company: ev.company || state.company,
             chatId: ev.chat_id || state.chatId,
             neighbors: ev.neighbors || [],
@@ -249,6 +259,7 @@ export default function Page() {
           ? { ...memo, presentation_url: deck.public_url, edit_path: memo.edit_path || deck.edit_path || undefined }
           : memo,
       synthesis: chat.synthesis || null,
+      comparison: chat.comparison || null,
       neighbors: chat.network_snapshot?.neighbors || [],
       newPos: chat.network_snapshot?.new_pos || null,
       selectedAgents: Object.keys(agents).length ? Object.keys(agents) : null,

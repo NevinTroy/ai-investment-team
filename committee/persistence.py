@@ -171,6 +171,69 @@ def save_synthesis(chat_id: str | None, synthesis: dict | None) -> None:
         logger.exception("save_synthesis failed for chat %s (has the synthesis column been added?)", chat_id)
 
 
+def get_analyses_for_comparison(companies: list[str] | None = None, sector: str = "") -> list[dict]:
+    """Fetch completed analyses to compare, without re-running the committee.
+
+    Two shapes, matching the two ways a user asks for a comparison:
+      - ``companies``: explicit names ("Notion vs Airtable"). Matched loosely
+        with ilike so stored names like "Notion Labs" still hit.
+      - ``sector``: a whole category ("compare our fintech companies").
+
+    Only ``status='done'`` rows that actually have an ``analysis`` payload are
+    returned, deduped to the most-recent run per company. Each item is
+    ``{id, company, sector, analysis, synthesis, created_at}``. Fail-soft:
+    returns ``[]`` when Supabase is unconfigured or the query errors.
+    """
+    client = get_supabase_client()
+    if client is None:
+        return []
+    try:
+        query = (
+            client.table("chats")
+            .select("id,company,sector,analysis,synthesis,created_at")
+            .eq("status", "done")
+        )
+        if companies:
+            # OR of per-name ilike filters, e.g.
+            # company.ilike.%Notion%,company.ilike.%Airtable%
+            escaped = [c.replace(",", " ").strip() for c in companies if c and c.strip()]
+            if escaped:
+                or_expr = ",".join(f"company.ilike.%{name}%" for name in escaped)
+                query = query.or_(or_expr)
+        elif sector:
+            query = query.ilike("sector", f"%{sector}%")
+        rows = query.order("created_at", desc=True).execute().data or []
+    except Exception:
+        logger.exception("get_analyses_for_comparison failed")
+        return []
+
+    # Keep the most-recent completed run per company (rows are newest-first).
+    seen: set[str] = set()
+    latest: list[dict] = []
+    for row in rows:
+        key = (row.get("company") or "").strip().lower()
+        if not key or key in seen or not row.get("analysis"):
+            continue
+        seen.add(key)
+        latest.append(row)
+    return latest
+
+
+def save_comparison(chat_id: str | None, comparison: dict | None) -> None:
+    """Persist a comparison run's structured result. Its own write (like
+    save_synthesis) so a missing `comparison` column never blocks marking the
+    chat done — the live result still streams via the SSE complete event."""
+    if not chat_id or comparison is None:
+        return
+    client = get_supabase_client()
+    if client is None:
+        return
+    try:
+        client.table("chats").update({"comparison": comparison}).eq("id", chat_id).execute()
+    except Exception:
+        logger.exception("save_comparison failed for chat %s (has the comparison column been added?)", chat_id)
+
+
 def save_network_neighbors(chat_id: str | None, company: str, neighbors: list) -> None:
     """Persist the top-N portfolio neighbours (with similarity score) as individual
     rows, one per neighbour, alongside the compact copy in chats.network_snapshot.
