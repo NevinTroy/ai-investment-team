@@ -470,18 +470,34 @@ def get_followup(followup_id: str | None) -> dict | None:
         return None
 
 
+def _effective_today() -> "date":
+    """The server's notion of 'today' for due-date checks.
+
+    Normally the real system date. Set ``COMMITTEE_TODAY=YYYY-MM-DD`` to simulate
+    a future date — useful for testing scheduled watchlist reruns without waiting
+    for (or changing) the machine clock. An invalid value is ignored.
+    """
+    from datetime import date
+    override = os.environ.get("COMMITTEE_TODAY")
+    if override:
+        try:
+            return date.fromisoformat(override.strip())
+        except ValueError:
+            logger.warning("Ignoring invalid COMMITTEE_TODAY=%r (expected YYYY-MM-DD)", override)
+    return date.today()
+
+
 def list_due_followups() -> list[dict]:
     """Pending followups whose due date has arrived (server local date)."""
     client = get_supabase_client()
     if client is None:
         return []
     try:
-        from datetime import date
         res = (
             client.table("followups")
             .select("*")
             .eq("status", "pending")
-            .lte("due_date", date.today().isoformat())
+            .lte("due_date", _effective_today().isoformat())
             .order("due_date")
             .execute()
         )

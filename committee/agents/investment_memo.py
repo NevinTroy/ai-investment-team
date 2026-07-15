@@ -223,6 +223,17 @@ def _consolidated_analysis_payload(analysis: dict) -> str:
     return "\n\n".join(sections) if sections else "(no analyst outputs available)"
 
 
+def _deck_intel_payload(analysis: dict) -> str:
+    """The Deck Agent's consolidation of an uploaded pitch deck, if present —
+    the company's own claims (traction, the ask, use of funds, internal metrics)
+    that the committee's web research typically can't surface. Empty string when
+    the run wasn't started from an uploaded deck."""
+    deck = analysis.get("deck_intel")
+    if not isinstance(deck, dict) or not deck:
+        return ""
+    return json.dumps(deck, indent=2)
+
+
 def _sanitize_presenton_text(text: str) -> str:
     """Normalize slide copy so Presenton smart-design does not pull out rogue metric callouts."""
     if not text:
@@ -259,12 +270,35 @@ def _sanitize_presenton_text(text: str) -> str:
 
 def _build_memo_prompt(company: str, question: str, analysis: dict) -> str:
     consolidated = _consolidated_analysis_payload(analysis)
+    deck_intel = _deck_intel_payload(analysis)
+    deck_section = (
+        (
+            "\n=== PITCH DECK (COMPANY'S OWN CLAIMS, via the Deck Agent) ===\n"
+            f"{deck_intel}\n"
+            "=== END PITCH DECK ===\n"
+        )
+        if deck_intel
+        else ""
+    )
+    deck_requirement = (
+        (
+            "PITCH DECK HANDLING: A PITCH DECK section is present below — it is the company's OWN "
+            "claims from an uploaded deck, consolidated by the Deck Agent. Fold its concrete specifics into the "
+            "relevant slides — especially data the committee's web research lacks (traction "
+            "metrics, the raise/ask, use of funds, internal financials, roadmap). Attribute deck "
+            "figures as management's claims (e.g. 'Per the deck: ...'), prefer committee-verified "
+            "facts when the two disagree, and explicitly flag material claims the committee could "
+            "not corroborate. Weave this in without exceeding 6 body slides.\n"
+        )
+        if deck_intel
+        else ""
+    )
     return f"""You are a senior investment analyst preparing an investment committee memo deck.
 
 Investment question: "{question}"
 Company: {company}
 
-Using ONLY the committee analyst outputs below, draft slide content for an investment memo presentation.
+Using the committee analyst outputs below{" and the uploaded pitch deck" if deck_intel else ""}, draft slide content for an investment memo presentation.
 
 Requirements:
 1. Provide a professional subtitle for the title slide.
@@ -278,7 +312,8 @@ Requirements:
      output — regulatory exposure, key-person risk, market timing, and red flags —
      when that analysis is present)
 3. Keep each slide concise: 3-5 bullet points, max ~120 words per slide.
-   Do NOT invent facts not supported by the analyst outputs. Use "Unknown" or "Not disclosed" when missing.
+   Do NOT invent facts not supported by the analyst outputs{" or the pitch deck" if deck_intel else ""}. Use "Unknown" or "Not disclosed" when missing.
+{deck_requirement}
 4. Presenton-safe formatting (critical — prevents broken slide typography):
    - Use plain bullet lines only. No markdown bold/italic, no tildes (~), no em-dashes between figures.
    - Put each metric on its own bullet or a single clear label, e.g. "Revenue: $604.6M" or "Seed round: $5M".
@@ -298,7 +333,7 @@ Requirements:
 === COMMITTEE ANALYST OUTPUTS ===
 {consolidated}
 === END OUTPUTS ===
-
+{deck_section}
 Respond in JSON format with EXACTLY these keys:
 {{
   "subtitle": "<title slide subtitle>",

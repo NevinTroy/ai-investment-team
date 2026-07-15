@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Avatar from "./Avatar";
 import AgentsCard from "./AgentsCard";
 import PdfSection from "./PdfSection";
+import DeckExtractCard from "./DeckExtractCard";
 import FollowupCard from "./FollowupCard";
 import NetworkPanel from "./NetworkPanel";
 import SynthesisCard from "./SynthesisCard";
@@ -81,6 +82,9 @@ export default function ChatView({
           <div className="user-row">
             <div className="user-bubble">{state.query}</div>
           </div>
+
+          {/* Intermediate "extracted from your deck" section for upload runs. */}
+          {state.deckExtract && <DeckExtractCard deck={state.deckExtract} />}
 
           {showThinking && (
             <div className="asst-row">

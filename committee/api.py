@@ -13,7 +13,7 @@ from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -28,7 +28,9 @@ load_dotenv(_project_root / ".env", override=True)
 from pydantic import Field as PydanticField
 
 from committee.graph import COMMITTEE_AGENTS, build_committee  # noqa: E402
+from committee.deck_extract import MAX_LLM_CHARS, SUPPORTED_EXTS, extract_deck  # noqa: E402
 from committee.agents.comparison_agent import run_comparison_agent  # noqa: E402
+from committee.agents.deck_agent import run_deck_agent  # noqa: E402
 from committee.agents.investment_memo import investment_memo_agent  # noqa: E402
 from committee.agents.sql_agent import run_sql_agent  # noqa: E402
 from committee.main import _base_metadata, _company_from_url, _extract_company, _normalize_question  # noqa: E402
@@ -249,6 +251,7 @@ AGENT_DISPLAY = {
     "product_analyst_agent": "Product Analyst",
     "competitive_intelligence_agent": "Competitive Intelligence",
     "risk_analyst_agent": "Risk Analyst",
+    "deck_intel_agent": "Deck Agent",
     "investment_memo_agent": "Investment Memo",
 }
 
@@ -265,12 +268,19 @@ def _run_analysis(
     company: str,
     selected_agents: list[str] | None = None,
     run_memo: bool = True,
+    deck_text: str | None = None,
 ) -> dict:
     """Blocking analysis — runs in a thread pool executor.
 
     ``run_memo`` gates the Investment Memo agent: it only runs for a full
     committee evaluation ("Should we invest in X?"), not for narrow questions
     that route a single analyst.
+
+    ``deck_text`` (deck-upload runs only): after the committee finishes and
+    before the memo, the Deck Agent consolidates the uploaded deck's text into
+    committee-relevant intel (``analysis["deck_intel"]``) so the memo agent can
+    fold the company's own claims — traction, the ask, use of funds — into the
+    final memo. Only meaningful with ``run_memo=True``.
     """
     committee = build_committee(selected_agents)
     metadata = _base_metadata(False)
@@ -295,6 +305,13 @@ def _run_analysis(
         )
 
         if run_memo:
+            # Deck Agent runs after the committee (so it can see what the
+            # research already covered) and before the memo (so the memo can
+            # incorporate its consolidation).
+            if deck_text:
+                analysis = final_state["data"].setdefault("analysis", {})
+                analysis["deck_intel"] = run_deck_agent(deck_text, company, analysis, metadata)
+
             memo_state = {
                 "messages": final_state.get("messages", []),
                 "data": final_state["data"],
@@ -587,6 +604,202 @@ async def _handle_revisit(followup_id: str, loop, metadata: dict) -> StreamingRe
     )
 
 
+# Reject uploads larger than this outright. Kept in sync with the Next dev
+# proxy's `middlewareClientMaxBodySize` (frontend/next.config.ts) so the two
+# don't disagree about what fits.
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+
+
+class _DeckIdentity(BaseModel):
+    is_company_deck: bool = PydanticField(description="True if this looks like a startup/company pitch or investor deck.")
+    company: str = PydanticField(default="", description="The company the deck is pitching, or empty string if none is identifiable.")
+    sector: str = PydanticField(default="", description="The company's sector(s) as a short comma-separated list (e.g. 'fintech, payments'). Empty if unknown.")
+    summary: str = PydanticField(default="", description="A 2-3 sentence summary of what the deck pitches: the company, its product, and the ask/opportunity.")
+
+
+def _identify_deck(deck_text: str, metadata: dict) -> _DeckIdentity:
+    """LLM pass over the extracted deck text: is this a company pitch, and if so
+    which company / sector, plus a short summary shown in the intermediate view."""
+    prompt = (
+        "You are reviewing the text extracted from an uploaded slide deck for an "
+        "investment committee. Decide whether it is a startup/company PITCH or "
+        "investor deck, and if so identify the company.\n\n"
+        "=== DECK TEXT ===\n"
+        f"{deck_text[:MAX_LLM_CHARS]}\n"
+        "=== END DECK TEXT ===\n\n"
+        "Return JSON with EXACTLY these keys:\n"
+        '{"is_company_deck": true/false, '
+        '"company": "<the company the deck pitches, or empty string>", '
+        '"sector": "<short comma-separated sector list, or empty string>", '
+        '"summary": "<2-3 sentence summary of the company, product, and the ask>"}'
+    )
+    state = {"data": {}, "metadata": metadata}
+    return call_llm(
+        prompt, _DeckIdentity, agent_name="deck_identifier", state=state,
+        default_factory=lambda: _DeckIdentity(is_company_deck=False),
+    )
+
+
+def _sse_error(message: str) -> StreamingResponse:
+    async def _gen():
+        yield f"data: {json.dumps({'type': 'error', 'message': message})}\n\n"
+    return StreamingResponse(_gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+async def _handle_deck(filename: str, data: bytes, loop, metadata: dict) -> StreamingResponse:
+    """Upload path: extract text from a .pptx/.pdf deck, identify the company,
+    surface the extracted text as an intermediate `deck_extracted` event, then
+    fire the FULL investment committee on that company (memo + decision) — the
+    same pipeline as a typed "Should we invest in X?" question, sourced from the
+    deck instead of a text box.
+    """
+    # 1. Extract the deck text (blocking parse off the event loop).
+    try:
+        deck = await loop.run_in_executor(_executor, lambda: extract_deck(filename, data))
+    except ValueError as exc:
+        return _sse_error(str(exc))
+    except Exception:
+        logger.exception("Unexpected deck extraction failure for %s", filename)
+        return _sse_error("Could not read the uploaded deck.")
+
+    # 2. Identify the company the deck pitches. Guarded so a failure here surfaces
+    #    as a readable error in the chat instead of a bare HTTP 500.
+    try:
+        identity = await loop.run_in_executor(_executor, lambda: _identify_deck(deck["text"], metadata))
+    except Exception as exc:
+        logger.exception("Deck identification failed for %s", filename)
+        return _sse_error(f"Read the deck, but couldn't analyze it: {type(exc).__name__}: {exc}")
+    company = (identity.company or "").strip()
+
+    if not identity.is_company_deck or not company:
+        reason = (
+            "I couldn't identify a company to analyze from that deck. Upload a startup "
+            "pitch or investor deck (.pptx/.pdf) that names the company it's pitching."
+        )
+        chat_id = await loop.run_in_executor(_executor, lambda: create_chat(f"Deck upload: {filename}", ""))
+        await loop.run_in_executor(_executor, lambda: save_user_message(chat_id, f"Uploaded deck: {filename}"))
+        await loop.run_in_executor(_executor, lambda: mark_chat_rejected(chat_id, reason))
+
+        # Still surface what we extracted so the upload wasn't a black box.
+        deck_payload = {**deck, "company": "", "sector": "", "summary": identity.summary}
+
+        async def _reject():
+            yield f"data: {json.dumps({'type': 'start', 'company': '', 'question': f'Deck upload: {filename}', 'chat_id': chat_id, 'agents': []})}\n\n"
+            yield f"data: {json.dumps({'type': 'deck_extracted', 'deck': deck_payload})}\n\n"
+            yield f"data: {json.dumps({'type': 'rejected', 'reason': reason, 'chat_id': chat_id})}\n\n"
+        return StreamingResponse(_reject(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    sector = (identity.sector or "").strip()
+    question = f"Should we invest in {company}? (from uploaded deck: {filename})"
+    deck_payload = {**deck, "company": company, "sector": sector, "summary": identity.summary}
+
+    # 3. A deck upload always runs the full committee, then the Deck Agent
+    #    consolidates the deck, then the memo (which folds the deck in).
+    selected_agents = list(COMMITTEE_AGENTS)
+    selected_nodes = (
+        [COMMITTEE_AGENTS[k][0] for k in selected_agents]
+        + ["deck_intel_agent", "investment_memo_agent"]
+    )
+
+    chat_id = await loop.run_in_executor(_executor, lambda: create_chat(question, company, sector))
+    await loop.run_in_executor(_executor, lambda: save_user_message(chat_id, f"Uploaded deck: {filename}"))
+    # Persist the extracted deck (as its own agent_outputs row) so a reloaded
+    # chat can show the same intermediate view.
+    await loop.run_in_executor(
+        _executor,
+        lambda: save_agent_output(chat_id, "deck_extractor", company, json.dumps(deck_payload)),
+    )
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def handler(agent_name, ticker, status, analysis, timestamp):
+        event = json.dumps({
+            "type": "agent_update",
+            "agent": agent_name,
+            "display_name": AGENT_DISPLAY.get(agent_name, agent_name),
+            "ticker": ticker or "",
+            "status": status,
+            "analysis": analysis,
+        })
+        loop.call_soon_threadsafe(queue.put_nowait, event)
+        if analysis:
+            save_agent_output(chat_id, agent_name, ticker, analysis)
+
+    progress.register_handler(handler)
+
+    async def _task():
+        try:
+            data_out = await loop.run_in_executor(
+                _executor,
+                lambda: _run_analysis(
+                    question, company, selected_agents, run_memo=True, deck_text=deck["text"]
+                ),
+            )
+            ana = data_out.get("analysis", {})
+            market = ana.get("market_analyzer", {})
+            memo = ana.get("investment_memo", {})
+
+            sector_hint = sector or market.get("sector") or market.get("market") or company
+            summary = memo.get("reasoning") or identity.summary or market.get("reasoning") or question
+            try:
+                neighbors, new_pos = await loop.run_in_executor(
+                    _executor, lambda: find_neighbors(sector_hint, summary, top_k=10)
+                )
+            except Exception:
+                neighbors, new_pos = [], (0.5, 0.5)
+
+            try:
+                await loop.run_in_executor(_executor, lambda: save_chat_result(chat_id, ana, neighbors, new_pos))
+                await loop.run_in_executor(_executor, lambda: save_network_neighbors(chat_id, company, neighbors))
+                if memo.get("presentation_url"):
+                    await loop.run_in_executor(
+                        _executor,
+                        lambda: download_and_store_deck(
+                            chat_id, memo["presentation_url"], memo.get("edit_path", ""), company
+                        ),
+                    )
+                assistant_summary = memo.get("recommendation_headline") or "Analysis complete"
+                await loop.run_in_executor(_executor, lambda: save_assistant_message(chat_id, assistant_summary))
+            except Exception:
+                logger.exception("Persistence step failed for deck chat %s", chat_id)
+
+            await queue.put(json.dumps({
+                "type": "complete",
+                "data": data_out,
+                "company": company,
+                "neighbors": neighbors,
+                "new_pos": new_pos,
+                "synthesis": None,
+                "chat_id": chat_id,
+            }))
+        except Exception as exc:
+            logger.exception("Deck analysis failed")
+            await loop.run_in_executor(_executor, lambda: mark_chat_error(chat_id, str(exc)))
+            await queue.put(json.dumps({"type": "error", "message": str(exc)}))
+        finally:
+            progress.unregister_handler(handler)
+            await queue.put(None)
+
+    asyncio.create_task(_task())
+
+    async def stream():
+        yield f"data: {json.dumps({'type': 'start', 'company': company, 'question': question, 'chat_id': chat_id, 'agents': selected_nodes})}\n\n"
+        yield f"data: {json.dumps({'type': 'deck_extracted', 'deck': deck_payload})}\n\n"
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield f"data: {item}\n\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/api/analyze")
 async def analyze(req: AnalyzeRequest):
     loop = asyncio.get_event_loop()
@@ -785,6 +998,30 @@ async def analyze(req: AnalyzeRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.post("/api/analyze-deck")
+async def analyze_deck(file: UploadFile = File(...)):
+    """Upload a .pptx/.pdf pitch deck: extract its text, identify the company,
+    and fire the full committee on it. Streams the same SSE contract as
+    /api/analyze plus a `deck_extracted` event carrying the extracted text."""
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in SUPPORTED_EXTS:
+        raise HTTPException(status_code=400, detail="Upload a .pptx or .pdf deck.")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 100 MB).")
+    loop = asyncio.get_event_loop()
+    metadata = _base_metadata(False)
+    # Safety net: any pre-stream failure becomes a readable SSE error in the chat
+    # (with the real cause) rather than an opaque HTTP 500.
+    try:
+        return await _handle_deck(file.filename or "deck", data, loop, metadata)
+    except Exception as exc:
+        logger.exception("analyze-deck failed for %s", file.filename)
+        return _sse_error(f"Upload processing failed: {type(exc).__name__}: {exc}")
 
 
 @app.get("/api/network")

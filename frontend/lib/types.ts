@@ -3,10 +3,11 @@
 export const AGENT_ORDER = [
   "competitive_intelligence_agent",
   "founder_analyzer_agent",
-  "investment_memo_agent",
   "market_analyzer_agent",
   "product_analyst_agent",
   "risk_analyst_agent",
+  "deck_intel_agent",
+  "investment_memo_agent",
 ] as const;
 
 export type AgentId = (typeof AGENT_ORDER)[number];
@@ -14,10 +15,11 @@ export type AgentId = (typeof AGENT_ORDER)[number];
 export const AGENT_DISPLAY: Record<AgentId, string> = {
   competitive_intelligence_agent: "Competitive Intelligence",
   founder_analyzer_agent: "Founder Analyzer",
-  investment_memo_agent: "Investment Memo",
   market_analyzer_agent: "Market Analyzer",
   product_analyst_agent: "Product Analyst",
   risk_analyst_agent: "Risk Analyst",
+  deck_intel_agent: "Deck Agent",
+  investment_memo_agent: "Investment Memo",
 };
 
 export type AgentStatus = "pending" | "running" | "done";
@@ -58,6 +60,25 @@ export interface Comparison {
   rationale: string;
   dimensions: string[];
   rows: ComparisonRow[];
+}
+
+// One slide/page of text pulled from an uploaded deck.
+export interface DeckSection {
+  label: string;
+  text: string;
+}
+
+// The intermediate "extracted from your deck" payload (deck_extracted event).
+export interface DeckExtract {
+  kind: string; // "pptx" | "pdf"
+  filename: string;
+  company: string;
+  sector: string;
+  summary: string;
+  sections: DeckSection[]; // only slides/pages that had extractable text
+  total_units?: number; // total slides/pages in the file (incl. image-only)
+  text: string;
+  char_count: number;
 }
 
 export interface Neighbor {
@@ -110,6 +131,7 @@ export interface ChatDetail extends ChatSummary {
   error_message: string | null;
   deck: Deck | null;
   messages: { role: "user" | "assistant"; content: string; created_at: string }[];
+  agent_outputs?: { agent_name: string; output: Record<string, unknown> }[];
 }
 
 export interface Followup {
@@ -125,6 +147,7 @@ export interface Followup {
 // SSE events streamed from POST /api/analyze
 export type AnalyzeEvent =
   | { type: "start"; company: string; question: string; chat_id: string | null; agents?: string[] }
+  | { type: "deck_extracted"; deck: DeckExtract }
   | { type: "agent_update"; agent: string; display_name: string; ticker: string; status: string; analysis: string | null }
   | { type: "progress"; message: string }
   | { type: "complete"; data: { analysis?: Record<string, MemoData> }; company: string; neighbors: Neighbor[]; new_pos: [number, number] | null; synthesis: Synthesis | null; comparison?: Comparison | null; chat_id: string | null }
