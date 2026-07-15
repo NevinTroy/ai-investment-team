@@ -59,24 +59,7 @@ export function dismissFollowup(followupId: string): void {
  * (EventSource doesn't support POST bodies, so this reads the response body as a
  * stream and parses the lines — same approach as the original vanilla frontend.)
  */
-async function streamSSE(
-  url: string,
-  body: unknown,
-  onEvent: (ev: AnalyzeEvent) => void,
-  onNetworkError: () => void,
-): Promise<void> {
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body ?? {}),
-    });
-  } catch {
-    onNetworkError();
-    return;
-  }
-
+async function readSSE(res: Response, onEvent: (ev: AnalyzeEvent) => void): Promise<void> {
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let buf = "";
@@ -99,6 +82,26 @@ async function streamSSE(
   }
 }
 
+async function streamSSE(
+  url: string,
+  body: unknown,
+  onEvent: (ev: AnalyzeEvent) => void,
+  onNetworkError: () => void,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body ?? {}),
+    });
+  } catch {
+    onNetworkError();
+    return;
+  }
+  await readSSE(res, onEvent);
+}
+
 /** POST /api/analyze and stream the SSE events back through `onEvent`. */
 export function streamAnalysis(
   question: string,
@@ -106,6 +109,40 @@ export function streamAnalysis(
   onNetworkError: () => void,
 ): Promise<void> {
   return streamSSE("/api/analyze", { question }, onEvent, onNetworkError);
+}
+
+/**
+ * Upload a .pptx/.pdf deck to /api/analyze-deck (multipart) and stream the SSE
+ * events — including the intermediate `deck_extracted` event — back through
+ * `onEvent`. On an HTTP error (bad type / too large) surfaces a synthetic error
+ * event so the caller renders it like any other failure.
+ */
+export async function streamDeckAnalysis(
+  file: File,
+  onEvent: (ev: AnalyzeEvent) => void,
+  onNetworkError: () => void,
+): Promise<void> {
+  const form = new FormData();
+  form.append("file", file);
+  let res: Response;
+  try {
+    res = await fetch("/api/analyze-deck", { method: "POST", body: form });
+  } catch {
+    onNetworkError();
+    return;
+  }
+  if (!res.ok) {
+    let detail = `Upload failed (${res.status}).`;
+    try {
+      const j = await res.json();
+      if (j?.detail) detail = j.detail;
+    } catch {
+      /* keep default */
+    }
+    onEvent({ type: "error", message: detail });
+    return;
+  }
+  await readSSE(res, onEvent);
 }
 
 /**
